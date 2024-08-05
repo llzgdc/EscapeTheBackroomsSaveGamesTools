@@ -1,9 +1,9 @@
-#逃离后室存档工具
+# 逃离后室存档工具
 
 这是一个用于管理逃离后室存档工具的小工具
 
 这是我的第一个开源项目，有些错误尽管提
 
 国内可以使用蓝奏云下载
-https://llzgd.lanzouj.com/b03rde3lc
+[下载](https://llzgd.lanzouj.com/b03rde3lc)
 密码:bse9
