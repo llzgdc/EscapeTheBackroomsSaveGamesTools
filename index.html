@@ -5,9 +5,60 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="icon" type="image/png" href="/app-icon.png" />
     <title>ETBToolkit</title>
+    <script>
+      // 在首帧绘制前应用主题（与 App.tsx 同源：zustand persist "app-storage"），
+      // 避免启动 splash 与应用外壳出现明暗闪变
+      (function () {
+        try {
+          var s = JSON.parse(localStorage.getItem("app-storage") || "{}");
+          var t = (s.state && s.state.theme) || "system";
+          var dark =
+            t === "dark" ||
+            (t === "system" &&
+              window.matchMedia("(prefers-color-scheme: dark)").matches);
+          if (dark) document.documentElement.classList.add("dark");
+        } catch (e) {
+          /* ignore */
+        }
+      })();
+    </script>
+    <style>
+      /* 启动 splash：JS 加载完成前以纯 CSS 占位，颜色与 AppShell 的 shell-bg 对齐。
+         React 首帧提交后在 App.tsx 中移除 #splash。 */
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: hsl(48 33% 97%); /* --neutral-50 (light shell-bg) */
+      }
+      .dark #splash {
+        background: hsl(20 8% 19%); /* --neutral-900 (dark shell-bg) */
+      }
+      #splash-ring {
+        width: 28px;
+        height: 28px;
+        border-radius: 9999px;
+        border: 3px solid hsl(40 18% 89%); /* --neutral-200 */
+        border-top-color: hsl(210 17% 53%); /* --primary-500 */
+        animation: splash-spin 0.8s linear infinite;
+      }
+      .dark #splash-ring {
+        border-color: hsl(22 6% 29%); /* --neutral-800 */
+        border-top-color: hsl(210 18% 62%); /* --primary-400 */
+      }
+      @keyframes splash-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+    <div id="splash"><div id="splash-ring"></div></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -1,7 +1,7 @@
 /**
  * 玩家 API — get_player_data / get_player_unique_ids / unlock_all_hub_doors / handle_edit_save
  */
-import { tauriInvoke } from "./index";
+import { tauriInvoke } from "./core";
 import type { PlayerData, PlayerIdMapping } from "../types";
 
 export const playerApi = {

@@ -6,7 +6,7 @@
  */
 import { getCurrentWindow } from "@tauri-apps/api/window";
 
-import { tauriInvoke } from "./index";
+import { tauriInvoke } from "./core";
 
 export const systemApi = {
   /** 获取 %LOCALAPPDATA% 路径 */
@@ -63,6 +63,10 @@ export const windowControls = {
   /** 是否运行在 Tauri 窗口内（否则 UI 应隐藏窗口控制按钮） */
   isAvailable(): boolean {
     return getAppWindow() !== null;
+  },
+  /** 显示窗口（配合 tauri.conf.json 的 visible:false，在首帧就绪后调用以消除白屏） */
+  async show(): Promise<void> {
+    await getAppWindow()?.show();
   },
   async minimize(): Promise<void> {
     await getAppWindow()?.minimize();

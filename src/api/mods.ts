@@ -1,7 +1,7 @@
 /**
  * 模组 API — UE4SS / NSU 安装管理
  */
-import { tauriInvoke } from "./index";
+import { tauriInvoke } from "./core";
 import type {
   GamePathInfo,
   InstallResult,

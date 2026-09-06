@@ -1,7 +1,7 @@
 /**
  * 存档 API — save/loader/deleter/converter 相关命令
  */
-import { tauriInvoke } from "./index";
+import { tauriInvoke } from "./core";
 import type {
   ArchiveFolderFile,
   CreateArchiveOptions,

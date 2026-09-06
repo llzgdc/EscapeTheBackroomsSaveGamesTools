@@ -40,8 +40,8 @@ reqwest = { version = "0.13", features = ["blocking", "json"] }
 zip = "2"
 
 # 仅在发布时启用优化，不影响开发编译速度
+# lto = "thin" + 默认 codegen-units：相对 fat LTO 大幅缩短发布构建时间，体积仅有微小差异
 [profile.release]
-lto = "fat"
-codegen-units = 1
+lto = "thin"
 panic = "abort"
 strip = true

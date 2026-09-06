@@ -1,10 +1,21 @@
 /**
  * 应用外壳布局：标题栏 + 侧边栏 + 内容区
  */
+import { Suspense } from "react";
 import { Outlet } from "react-router-dom";
 
 import { useAppStore } from "../stores";
+import { Spinner } from "../components/ui";
 import { TitleBar, Sidebar } from "./components";
+
+/** 懒加载页面 chunk 加载期间的占位 */
+function PageFallback() {
+  return (
+    <div className="flex h-full w-full items-center justify-center">
+      <Spinner size={28} />
+    </div>
+  );
+}
 
 export default function AppShell() {
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
@@ -26,7 +37,9 @@ export default function AppShell() {
             color: "var(--color-text-primary)",
           }}
         >
-          <Outlet />
+          <Suspense fallback={<PageFallback />}>
+            <Outlet />
+          </Suspense>
         </main>
       </div>
     </div>

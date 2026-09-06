@@ -21,6 +21,7 @@ mod system_commands;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    use tauri::Manager;
     // Initialize tracing
     tracing_subscriber::fmt()
         .with_env_filter(
@@ -77,6 +78,20 @@ pub fn run() {
             mods::uninstall_ue4ss,
             mods::open_mods_folder
         ])
+        .setup(|app| {
+            // 兜底：前端 JS 正常时会在首帧后调用 window.show()；
+            // 若前端启动失败（脚本异常等），5 秒后强制显示窗口，避免用户面对“无窗口”。
+            let handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(std::time::Duration::from_secs(5));
+                if let Some(win) = handle.get_webview_window("main") {
+                    if !win.is_visible().unwrap_or(true) {
+                        let _ = win.show();
+                    }
+                }
+            });
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

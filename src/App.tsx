@@ -1,23 +1,34 @@
 /**
  * 主应用组件
  * 路由配置在此处
+ *
+ * 页面级组件一律 React.lazy 懒加载：首屏只加载外壳（AppShell），
+ * 各页面 chunk 在首次进入路由时才请求，缩短启动白屏时间。
  */
-import { useEffect } from "react";
+import { lazy, useEffect } from "react";
 import { Navigate, Route, Routes } from "react-router-dom";
 
 import { AppShell } from "./layouts";
 import { PagePlaceholder, Toaster } from "./components";
 import { useAppStore } from "./stores";
-import SavesPage from "./features/saves/SavesPage";
-import CreateModePage from "./features/create/CreateModePage";
-import CreateWizardPage from "./features/create/CreateWizardPage";
-import QuickCreatePage from "./features/create/QuickCreatePage";
-import EditArchivePage from "./features/edit/EditArchivePage";
-import ModsPage from "./features/mods/ModsPage";
-import SettingsPage from "./features/settings/SettingsPage";
+import { windowControls } from "./api/system";
+
+const SavesPage = lazy(() => import("./features/saves/SavesPage"));
+const CreateModePage = lazy(() => import("./features/create/CreateModePage"));
+const CreateWizardPage = lazy(() => import("./features/create/CreateWizardPage"));
+const QuickCreatePage = lazy(() => import("./features/create/QuickCreatePage"));
+const EditArchivePage = lazy(() => import("./features/edit/EditArchivePage"));
+const ModsPage = lazy(() => import("./features/mods/ModsPage"));
+const SettingsPage = lazy(() => import("./features/settings/SettingsPage"));
 
 function App() {
   const theme = useAppStore((s) => s.theme);
+
+  // 首帧提交后：移除 index.html 启动 splash，并显示被 visible:false 隐藏的窗口
+  useEffect(() => {
+    document.getElementById("splash")?.remove();
+    windowControls.show().catch(() => undefined);
+  }, []);
 
   // 应用主题（light / dark / system）
   useEffect(() => {
