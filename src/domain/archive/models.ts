@@ -63,13 +63,19 @@ export interface ParsedArchiveConfig {
   validationErrors: string[];
 }
 
+export interface CreateArchivePlayer {
+  steamId: string;
+  inventory: number[];
+  sanity: number;
+}
+
 export interface CreateArchiveOptions {
   archiveName: string;
   level: string;
   gameMode: string;
   difficulty: string;
   actualDifficulty: string;
-  players: unknown[];
+  players: CreateArchivePlayer[];
   basicArchive: Record<string, unknown>;
   mainEnding: boolean;
   megUnlocked: boolean;

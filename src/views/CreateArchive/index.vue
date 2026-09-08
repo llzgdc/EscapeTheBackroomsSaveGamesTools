@@ -167,6 +167,8 @@ import { useRouter, useRoute } from "vue-router";
 import InventoryItemSelector from "@/components/feature/InventoryItemSelector.vue";
 import BaseModal from "@/components/ui/BaseModal.vue";
 import { notify } from "@/services/notificationService";
+import { tauriArchiveAdapter } from "@/adapters/tauri/archiveAdapter";
+import { tauriPlayerAdapter } from "@/adapters/tauri/playerAdapter";
 import Step1SelectLevel from "./Step1SelectLevel.vue";
 import Step2ConfigArchive from "./Step2ConfigArchive.vue";
 import Step3EditInventory from "./Step3EditInventory.vue";
@@ -587,47 +589,51 @@ const createArchive = async () => {
     const playerSteamIds = players.map((p) => p.steamId || "").filter(Boolean);
     if (playerSteamIds.length > 0) {
       try {
-        const res = await invoke("get_player_unique_ids", { steamIds: playerSteamIds });
-        uniqueIdMap = res?.map || {};
+        const idResult = await tauriPlayerAdapter.getPlayerUniqueIds(playerSteamIds);
+        if (idResult.success) {
+          uniqueIdMap = idResult.data || {};
+        }
       } catch {
         // 查询失败时退回纯 steam id
       }
     }
-    const saveData = {
-      archive_name: savedName,
+    // camelCase 领域模型；snake_case 转换统一由 archiveAdapter 完成
+    const createOptions = {
+      archiveName: savedName,
       level: selectedLevelData.levelKey || "Level0",
-      game_mode: "multiplayer",
+      gameMode: "multiplayer",
       difficulty: selectedDifficulty.value.charAt(0).toUpperCase() + selectedDifficulty.value.slice(1) || "Normal",
-      actual_difficulty:
+      actualDifficulty:
         (FEATURES.MERGE_DIFFICULTY ? selectedDifficulty.value : selectedActualDifficulty.value)
           .charAt(0)
           .toUpperCase() +
           (FEATURES.MERGE_DIFFICULTY ? selectedDifficulty.value : selectedActualDifficulty.value).slice(1) || "Normal",
       players: players.map((p) => ({
         // 纯 steam id；若该玩家在已有存档里存在完整键（含 EOS 后缀），复用，保证数据能绑定
-        steam_id: uniqueIdMap[p.steamId] || p.steamId || "",
+        steamId: uniqueIdMap[p.steamId] || p.steamId || "",
         inventory: Array.isArray(p.inventory)
           ? p.inventory.filter((item) => item !== null && item !== undefined).map((item) => getItemIdByName(item))
           : [],
         sanity: typeof p.sanity === "number" ? p.sanity : 100,
       })),
-      basic_archive: basicArchive || {},
-      main_ending: isSideLevel,
-      meg_unlocked: isMEGUnlocked,
+      basicArchive: basicArchive || {},
+      mainEnding: isSideLevel,
+      megUnlocked: isMEGUnlocked,
     };
-    if (!saveData.archive_name) {
+    if (!createOptions.archiveName) {
       notify.error(t("createArchive.enterArchiveName"));
       isCreating.value = false;
       return;
     }
-    if (!saveData.level) {
+    if (!createOptions.level) {
       notify.error(t("createArchive.selectLevelRequired"));
       isCreating.value = false;
       return;
     }
-    const { invoke } = await import("@tauri-apps/api/core");
-    // Creating progress indicator
-    await invoke("handle_new_save", { saveData });
+    const result = await tauriArchiveAdapter.createArchive(createOptions);
+    if (!result.success) {
+      throw new Error(result.error || "Failed to create archive");
+    }
     createParticleExplosion();
     openSuccessModal();
   } catch (error) {

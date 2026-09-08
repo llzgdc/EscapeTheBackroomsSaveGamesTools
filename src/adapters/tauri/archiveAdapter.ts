@@ -4,7 +4,12 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
-import type { Archive, ArchiveMetadata, ArchiveDetail, CreateArchiveOptions } from "@/domain/archive/models";
+import type {
+  Archive,
+  ArchiveMetadata,
+  ArchiveDetail,
+  CreateArchiveOptions,
+} from "@/domain/archive/models";
 import type { ArchiveServiceResult } from "@/domain/archive/service";
 
 /**
@@ -30,14 +35,101 @@ function normalizeInvokeError(error: unknown): string {
 /**
  * Archive adapter for Tauri backend
  */
+
+/**
+ * Wire formats exactly as serialized by the Rust structs in
+ * `save_utils.rs`. They derive plain `Serialize` (no `rename_all`),
+ * so field names arrive in snake_case and must be mapped into the
+ * camelCase domain models below.
+ */
+interface RustSaveFileInfo {
+  id: number;
+  name: string;
+  display_name?: string | null;
+  difficulty: string;
+  difficulty_class?: string;
+  actual_difficulty: string;
+  mode: string;
+  date: string;
+  current_level: string;
+  hidden: boolean;
+  path: string;
+  is_visible?: boolean | null;
+}
+
+interface RustSaveFileMeta {
+  id: number;
+  name: string;
+  display_name?: string | null;
+  difficulty: string;
+  mode: string;
+  date: string;
+  hidden: boolean;
+  path: string;
+  is_visible?: boolean | null;
+  file_size: number;
+}
+
+interface RustSaveFileMetaPage {
+  items: RustSaveFileMeta[];
+  total: number;
+  offset: number;
+  has_more: boolean;
+}
+
+interface RustSaveFileDetail {
+  path: string;
+  current_level: string;
+  actual_difficulty?: string | null;
+}
+
+function toArchive(item: RustSaveFileInfo): Archive {
+  return {
+    id: item.id,
+    name: item.name,
+    displayName: item.display_name ?? null,
+    difficulty: item.difficulty,
+    actualDifficulty: item.actual_difficulty,
+    mode: item.mode,
+    date: item.date,
+    currentLevel: item.current_level,
+    hidden: item.hidden,
+    path: item.path,
+    isVisible: item.is_visible === true,
+  };
+}
+
+function toArchiveMetadata(meta: RustSaveFileMeta): ArchiveMetadata {
+  return {
+    id: meta.id,
+    name: meta.name,
+    displayName: meta.display_name ?? null,
+    difficulty: meta.difficulty,
+    mode: meta.mode,
+    date: meta.date,
+    hidden: meta.hidden,
+    path: meta.path,
+    isVisible: meta.is_visible === true,
+    fileSize: meta.file_size,
+  };
+}
+
+function toArchiveDetail(detail: RustSaveFileDetail): ArchiveDetail {
+  return {
+    path: detail.path,
+    currentLevel: detail.current_level,
+    actualDifficulty: detail.actual_difficulty ?? "",
+  };
+}
+
 export class TauriArchiveAdapter {
   /**
    * Load all archives with full details
    */
   async loadAllArchives(): Promise<ArchiveServiceResult<Archive[]>> {
     try {
-      const archives = await invoke<Archive[]>("load_all_saves");
-      return { success: true, data: archives };
+      const archives = await invoke<RustSaveFileInfo[]>("load_all_saves");
+      return { success: true, data: archives.map(toArchive) };
     } catch (error) {
       return {
         success: false,
@@ -51,8 +143,8 @@ export class TauriArchiveAdapter {
    */
   async loadArchiveMetadata(): Promise<ArchiveServiceResult<ArchiveMetadata[]>> {
     try {
-      const metadata = await invoke<ArchiveMetadata[]>("load_save_metadata");
-      return { success: true, data: metadata };
+      const metadata = await invoke<RustSaveFileMeta[]>("load_save_metadata");
+      return { success: true, data: metadata.map(toArchiveMetadata) };
     } catch (error) {
       return {
         success: false,
@@ -69,11 +161,11 @@ export class TauriArchiveAdapter {
     limit: number,
   ): Promise<ArchiveServiceResult<{ items: ArchiveMetadata[]; total: number; hasMore: boolean }>> {
     try {
-      const page = await invoke<{ items: ArchiveMetadata[]; total: number; hasMore: boolean }>(
-        "load_save_metadata_page",
-        { offset, limit },
-      );
-      return { success: true, data: page };
+      const page = await invoke<RustSaveFileMetaPage>("load_save_metadata_page", { offset, limit });
+      return {
+        success: true,
+        data: { items: page.items.map(toArchiveMetadata), total: page.total, hasMore: page.has_more },
+      };
     } catch (error) {
       return {
         success: false,
@@ -87,8 +179,8 @@ export class TauriArchiveAdapter {
    */
   async loadArchiveDetailsBatch(paths: string[]): Promise<ArchiveServiceResult<ArchiveDetail[]>> {
     try {
-      const details = await invoke<ArchiveDetail[]>("load_save_details_batch", { paths });
-      return { success: true, data: details };
+      const details = await invoke<RustSaveFileDetail[]>("load_save_details_batch", { paths });
+      return { success: true, data: details.map(toArchiveDetail) };
     } catch (error) {
       return {
         success: false,
@@ -195,11 +287,29 @@ export class TauriArchiveAdapter {
   }
 
   /**
-   * Create new archive
+   * Create new archive.
+   * The Rust `SaveData` struct declares snake_case fields and serde does not
+   * accept camelCase aliases, so the camelCase domain model must be
+   * translated field-by-field before invoking.
    */
   async createArchive(options: CreateArchiveOptions): Promise<ArchiveServiceResult<void>> {
     try {
-      await invoke("handle_new_save", { saveData: options });
+      const saveData = {
+        archive_name: options.archiveName,
+        level: options.level,
+        game_mode: options.gameMode,
+        difficulty: options.difficulty,
+        actual_difficulty: options.actualDifficulty,
+        players: options.players.map((p) => ({
+          steam_id: p.steamId,
+          inventory: p.inventory,
+          sanity: p.sanity,
+        })),
+        basic_archive: options.basicArchive,
+        main_ending: options.mainEnding,
+        meg_unlocked: options.megUnlocked,
+      };
+      await invoke("handle_new_save", { saveData });
       return { success: true };
     } catch (error) {
       return {
