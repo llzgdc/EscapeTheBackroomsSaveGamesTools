@@ -261,9 +261,28 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Instant;
 
+/// Helper: run a blocking closure via tokio::task::spawn_blocking,
+/// mapping the join error into an AppResult. Directory walks and GVAS
+/// parses must not occupy a tokio runtime worker — every other module
+/// (save_batch, save_converter, save_deleter) wraps this kind of work
+/// the same way.
+async fn run_blocking<F, T>(f: F) -> AppResult<T>
+where
+    F: FnOnce() -> AppResult<T> + Send + 'static,
+    T: Send + 'static,
+{
+    tokio::task::spawn_blocking(f)
+        .await
+        .map_err(|e| format!("Task was cancelled: {}", e))?
+}
+
 /// Load all save files with full parsing
 #[tauri::command]
 pub async fn load_all_saves() -> AppResult<Vec<SaveFileInfo>> {
+    run_blocking(load_all_saves_sync).await
+}
+
+fn load_all_saves_sync() -> AppResult<Vec<SaveFileInfo>> {
     let start_time = Instant::now();
 
     // Parallel fetch file list and visible saves set (+ display names;
@@ -317,6 +336,10 @@ pub async fn load_all_saves() -> AppResult<Vec<SaveFileInfo>> {
 /// no .sav file parsing. Extremely fast even for 1000+ files.
 #[tauri::command]
 pub async fn load_save_metadata() -> AppResult<Vec<SaveFileMeta>> {
+    run_blocking(load_save_metadata_sync).await
+}
+
+fn load_save_metadata_sync() -> AppResult<Vec<SaveFileMeta>> {
     let start_time = Instant::now();
 
     // Phase 0: Convert any SINGLEPLAYER_ archives to MULTIPLAYER_
@@ -390,6 +413,13 @@ pub async fn load_save_metadata_page(
     offset: u32,
     limit: u32,
 ) -> AppResult<save_utils::SaveFileMetaPage> {
+    run_blocking(move || load_save_metadata_page_sync(offset, limit)).await
+}
+
+fn load_save_metadata_page_sync(
+    offset: u32,
+    limit: u32,
+) -> AppResult<save_utils::SaveFileMetaPage> {
     let start_time = Instant::now();
 
     let (paths_result, visible_state) = rayon::join(
@@ -452,6 +482,10 @@ pub async fn load_save_metadata_page(
 /// to get current_level and actual_difficulty.
 #[tauri::command]
 pub async fn load_save_details_batch(paths: Vec<String>) -> AppResult<Vec<SaveFileDetail>> {
+    run_blocking(move || load_save_details_batch_sync(paths)).await
+}
+
+fn load_save_details_batch_sync(paths: Vec<String>) -> AppResult<Vec<SaveFileDetail>> {
     let start_time = Instant::now();
     let count = paths.len();
 
@@ -459,6 +493,13 @@ pub async fn load_save_details_batch(paths: Vec<String>) -> AppResult<Vec<SaveFi
         .into_par_iter()
         .filter_map(|path| {
             let p = Path::new(&path);
+            // The paths come from the frontend; like every other command that
+            // touches user-supplied paths, refuse anything outside SaveGames
+            // so this parser entry point cannot be pointed at arbitrary files.
+            if let Err(e) = crate::common::validate_save_games_path(p) {
+                tracing::warn!("Skipping path outside SaveGames ({}): {}", e, path);
+                return None;
+            }
             cli_handlers::parse_sav_file(p).ok().map(|save| {
                 let current_level = cli_handlers::extract_current_level(&save);
                 let actual_difficulty =

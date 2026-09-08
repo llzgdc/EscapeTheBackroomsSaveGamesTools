@@ -188,11 +188,14 @@ pub async fn restore_file(file_path: String) -> AppResult<()> {
             .and_then(|n| n.to_str())
             .ok_or("Invalid trash file path")?;
 
+        // Validate the restore TARGET before moving any data there — this is
+        // the only containment check for the temp-layout branch (the trash
+        // file itself lives in %TEMP% by design), so it must run up front;
+        // after the move the check cannot undo the write.
+        validate_save_games_path(path)?;
+
         // Restore (may cross volumes between %TEMP% and SaveGames)
         move_file(&trash_path, path).map_err(|e| format!("Failed to restore file: {}", e))?;
-
-        // Validate restored path
-        validate_save_games_path(path)?;
 
         // Add back to MAINSAVE records. The trash filename ends in ".sav.trash",
         // so the plain ".sav" stripper would register the archive under a name

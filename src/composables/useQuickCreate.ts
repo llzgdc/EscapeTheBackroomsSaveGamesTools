@@ -660,6 +660,9 @@ export function useQuickCreate(): QuickCreateReturn {
     // Load basic archive template
     const basicArchive = await loadBasicArchive();
     if (!basicArchive) {
+      // Early return must still end the scheduler operation, otherwise the
+      // critical "batch-creating" op leaks for the whole session.
+      scheduler.endOperation("batch-creating");
       return {
         success: 0,
         failed: archivesToCreate.length,

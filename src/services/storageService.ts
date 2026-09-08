@@ -12,6 +12,8 @@ let initPromise: Promise<void> | null = null;
 // Storage configuration
 const STORAGE_DIR = "data";
 const STORAGE_FILE = "settings.json";
+// beforeunload 写入 localStorage 的最后快照 key，启动时用于恢复比文件更新的变更
+const FLUSH_BACKUP_KEY = "__storage_flush_backup";
 
 // Keys to migrate
 const KEYS_TO_MIGRATE: readonly string[] = [
@@ -143,7 +145,9 @@ async function saveToFile(): Promise<void> {
   try {
     const { BaseDirectory, writeTextFile } = await import("@tauri-apps/plugin-fs");
     const filePath = `${STORAGE_DIR}/${STORAGE_FILE}`;
-    const content = JSON.stringify(cache, null, 2);
+    // Stamp the write time so restoreFlushBackup() can tell whether the
+    // beforeunload localStorage backup is newer than this file.
+    const content = JSON.stringify({ ...cache, _savedAt: Date.now() }, null, 2);
     await writeTextFile(filePath, content, { baseDir: BaseDirectory.AppData });
   } catch (error) {
     console.warn("[Storage] 保存失败:", error);
@@ -162,6 +166,37 @@ export async function flush(): Promise<void> {
 }
 
 /**
+ * Restore pending changes captured by the beforeunload flush backup when the
+ * backup is newer than what made it into settings.json (the 500ms debounced
+ * save may not have landed before the window closed). Always clears the backup.
+ */
+function restoreFlushBackup(): void {
+  try {
+    const raw = localStorage.getItem(FLUSH_BACKUP_KEY);
+    localStorage.removeItem(FLUSH_BACKUP_KEY);
+    if (!raw) return;
+
+    const backup = JSON.parse(raw) as Record<string, unknown>;
+    const flushedAt = typeof backup._flushedAt === "number" ? backup._flushedAt : 0;
+    const savedAt = typeof cache._savedAt === "number" ? (cache._savedAt as number) : 0;
+    if (flushedAt <= savedAt) return;
+
+    // Adopt the backup payload, dropping bookkeeping keys (_flushedAt etc.)
+    const restored: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(backup)) {
+      if (!key.startsWith("_")) {
+        restored[key] = value;
+      }
+    }
+    cache = restored;
+    debouncedSave();
+    console.info("[Storage] Restored pending changes from beforeunload backup");
+  } catch (e) {
+    console.warn("[Storage] Failed to restore flush backup:", e);
+  }
+}
+
+/**
  * Set up page lifecycle flush hooks (visibilitychange + beforeunload)
  * Called internally after init, or can be called manually.
  */
@@ -176,16 +211,17 @@ function setupLifecycleFlush(): void {
 
   // Flush on page unload/refresh/close
   window.addEventListener("beforeunload", () => {
-    // Synchronous flush since beforeunload needs to complete before page unloads
     if (saveTimeout) {
       clearTimeout(saveTimeout);
       saveTimeout = null;
     }
-    // Use sendBeacon for reliability in beforeunload context
-    // but since we're writing to local file system, just do sync localStorage
-    const pendingJson = JSON.stringify(cache);
+    // Best-effort file save: it is async, so the webview may be torn down
+    // before it lands — the synchronous localStorage backup below is what
+    // restoreFlushBackup() reads on the next startup.
+    saveToFile();
+    const pendingJson = JSON.stringify({ ...cache, _flushedAt: Date.now() });
     try {
-      localStorage.setItem("__storage_flush_backup", pendingJson);
+      localStorage.setItem(FLUSH_BACKUP_KEY, pendingJson);
     } catch (e) {
       console.warn("[Storage] beforeunload flush failed:", e);
     }
@@ -228,6 +264,9 @@ export async function initStorage(): Promise<void> {
       // Set up lifecycle flush hooks after init
       setupLifecycleFlush();
 
+      // Recover changes newer than the file from the beforeunload backup
+      restoreFlushBackup();
+
       // Migrate from localStorage (runs in background)
       if (!cache._migrated) {
         migrateFromLocalStorage();
@@ -237,6 +276,7 @@ export async function initStorage(): Promise<void> {
       initialized = true;
       // Still try to set up lifecycle hooks even when init fails
       setupLifecycleFlush();
+      restoreFlushBackup();
     }
   })();
 

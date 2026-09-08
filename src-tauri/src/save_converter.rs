@@ -104,9 +104,13 @@ pub async fn convert_json_to_sav(json_content: String, output_path: String) -> A
         let save: uesave::Save = serde_json::from_str(&json_content)
             .map_err(|e| format!("Failed to rebuild Save object from JSON: {}", e))?;
 
-        // Create output file (using buffered write)
-        let file = fs::File::create(&output_path)
-            .map_err(|e| format!("Failed to create output file: {}", e))?;
+        // Write to a temp file first and rename over the target: File::create
+        // would truncate the output (typically the archive being overwritten
+        // from the JSON editor) up front, so a mid-write failure would destroy
+        // the original with no recovery path.
+        let temp_path = out_path.with_extension("sav.tmp");
+        let file = fs::File::create(&temp_path)
+            .map_err(|e| format!("Failed to create temp file: {}", e))?;
         let mut writer = BufWriter::with_capacity(16384, file);
 
         save.write(&mut writer)
@@ -115,6 +119,9 @@ pub async fn convert_json_to_sav(json_content: String, output_path: String) -> A
         writer
             .flush()
             .map_err(|e| format!("Failed to flush buffer: {}", e))?;
+
+        fs::rename(&temp_path, out_path)
+            .map_err(|e| format!("Failed to replace sav file: {}", e))?;
 
         Ok(json!({
             "success": true,

@@ -11,6 +11,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::{Mutex, MutexGuard, OnceLock};
 
 /// Helper: run a blocking closure via tokio::task::spawn_blocking,
 /// mapping the join error into an AppResult.
@@ -47,6 +48,19 @@ pub async fn get_player_data(file_path: String) -> AppResult<Value> {
 /// stored in the app config dir. Populated from existing saves so we don't have to
 /// rescan every save on each lookup.
 const PLAYER_ID_MAP_FILE: &str = "player_id_map.json";
+
+/// Process-wide lock guarding the load → mutate → persist span over
+/// `player_id_map.json`. Command bodies run on spawn_blocking threads and can
+/// genuinely race (e.g. a create flow resolving a player id while the player
+/// manager looks up another); without the lock one writer's discovery is lost.
+static PLAYER_ID_MAP_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
+fn player_id_map_lock() -> MutexGuard<'static, ()> {
+    PLAYER_ID_MAP_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner())
+}
 
 fn player_id_map_path() -> AppResult<PathBuf> {
     Ok(get_app_config_dir()?.join(PLAYER_ID_MAP_FILE))
@@ -115,6 +129,9 @@ fn is_real_eos_key(key: &str) -> bool {
 /// - Returns `None` when no real EOS key can be found anywhere (e.g. a player
 ///   that has never been saved — the game has no PUID for it yet).
 pub(crate) fn resolve_player_full_key(player_id: &str) -> Option<String> {
+    // Serialize the cache read-modify-write span (see PLAYER_ID_MAP_LOCK).
+    let _guard = player_id_map_lock();
+
     // Already a real key — nothing to resolve.
     if is_real_eos_key(player_id) {
         return Some(player_id.to_string());
@@ -171,12 +188,19 @@ pub(crate) fn resolve_player_full_key(player_id: &str) -> Option<String> {
 #[tauri::command]
 pub async fn get_player_unique_ids(steam_ids: Vec<String>) -> AppResult<Value> {
     run_blocking(move || {
+        // Serialize the cache read-modify-write span (see PLAYER_ID_MAP_LOCK).
+        let _guard = player_id_map_lock();
+
         let mut map = load_player_id_map();
 
-        // Only scan saves for ids missing from the cache
+        // Only scan saves for ids missing from the cache. A cached entry only
+        // counts as present when it carries a REAL EOS suffix: older versions
+        // persisted all-zeros placeholders, and treating those as hits would
+        // block the rediscovery scan forever (the result filter below would
+        // keep dropping the placeholder, so the player could never resolve).
         let missing: Vec<String> = steam_ids
             .iter()
-            .filter(|id| !map.contains_key(*id))
+            .filter(|id| !map.get(*id).is_some_and(|full| is_real_eos_key(full)))
             .cloned()
             .collect();
 

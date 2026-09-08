@@ -1,10 +1,12 @@
 import { getCurrentUpdateSource } from "@/config/updateConfig";
+import { APP_VERSION } from "@/config/version";
 import storage from "./storageService";
 import type { UpdateInfo, UpdateSourceConfig } from "@/types/update";
 import { openUrl } from "@tauri-apps/plugin-opener";
 
-// Version information
-const CURRENT_VERSION = "3.4.1";
+// Version information — sourced from package.json via @/config/version so it
+// can never drift out of sync with the app build.
+const CURRENT_VERSION = APP_VERSION;
 
 // Simplified update status
 export const UpdateStatus = {

@@ -163,6 +163,18 @@ pub fn create_new_save(save_data: SaveData) -> AppResult<()> {
     );
     let save_path = save_dir.join(&file_name);
 
+    // The write below replaces existing targets silently. Refuse to overwrite
+    // an existing archive — same guard as edit_save_file's rename — otherwise
+    // creating an archive whose name+difficulty collides with one on disk
+    // destroys the old save with no warning.
+    if save_path.exists() {
+        return Err(format!(
+            "An archive named '{}' already exists. Please choose a different name.",
+            save_data.archive_name
+        )
+        .into());
+    }
+
     tracing::info!("Target save path: {:?}", save_path);
 
     // Construct Save object from BasicArchive.json

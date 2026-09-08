@@ -10,11 +10,14 @@ interface NotificationPopupInstance {
 }
 
 let notificationInstance: NotificationPopupInstance | null = null;
+// In-flight init promise: two notify.* calls in the same tick both see a null
+// instance, and without this guard each would create its own mount point +
+// app instance (the first one leaks, never unmounted).
+let notificationInitPromise: Promise<NotificationPopupInstance> | null = null;
 let mountPoint: HTMLDivElement | null = null;
 const ENABLE_NOTIFICATION = true;
 
-const initNotification = (): Promise<NotificationPopupInstance> => {
-  if (notificationInstance) return Promise.resolve(notificationInstance);
+const createNotificationApp = (): Promise<NotificationPopupInstance> => {
   mountPoint = document.createElement("div");
   mountPoint.id = "notification-container";
   document.body.appendChild(mountPoint);
@@ -35,6 +38,14 @@ const initNotification = (): Promise<NotificationPopupInstance> => {
     };
     checkRef();
   });
+};
+
+const initNotification = (): Promise<NotificationPopupInstance> => {
+  if (notificationInstance) return Promise.resolve(notificationInstance);
+  if (!notificationInitPromise) {
+    notificationInitPromise = createNotificationApp();
+  }
+  return notificationInitPromise;
 };
 
 const getInstance = async (): Promise<NotificationPopupInstance | null> => {

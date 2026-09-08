@@ -94,7 +94,7 @@ export function useArchiveData(): {
   refreshArchives: () => Promise<void>;
   refreshArchivesSilent: () => Promise<void>;
   removeArchive: (archiveId: number) => void;
-  updateArchiveVisibility: (archiveId: number, isVisible: boolean) => void;
+  updateArchiveVisibility: (archiveId: number, isVisible: boolean, path?: string) => void;
 } {
   const { t } = useI18n({ useScope: "global" });
   const toast = useToast();

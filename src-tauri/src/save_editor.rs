@@ -14,6 +14,23 @@ use uesave::{
     PropertyType, Save, StructType, StructValue, ValueVec,
 };
 
+/// Whether two paths name the same file on disk. The frontend-supplied
+/// original path and our joined output path can differ in separators/case/
+/// normalization while naming the SAME file (a plain string compare misfires
+/// and blocks every in-place edit, or worse deletes the fresh save), so
+/// decide sameness through the filesystem: canonicalize resolves all of
+/// those on existing paths; the normalized string compare only serves as a
+/// fallback for paths that no longer exist.
+fn is_same_save_target(a: &Path, b: &Path) -> bool {
+    match (fs::canonicalize(a), fs::canonicalize(b)) {
+        (Ok(ca), Ok(cb)) => ca == cb,
+        _ => {
+            let norm = |p: &Path| p.to_string_lossy().to_lowercase().replace('/', "\\");
+            norm(a) == norm(b)
+        }
+    }
+}
+
 /// Handle special logic for Pipes level
 fn process_pipes_level(save: &mut Save, level: &str) -> String {
     let unlocked_fun_key = PropertyKey(0, "UnlockedFun".to_string());
@@ -216,30 +233,13 @@ pub fn edit_save_file(json_data: &JsonValue, output_dir: &str) -> AppResult<Stri
 
     // Refuse to save under a DIFFERENT archive's name: fs::rename replaces
     // existing targets on all platforms, so that would silently destroy the
-    // other archive's bytes with no warning. The frontend-supplied original
-    // path and our joined output path can differ in separators/case/normal-
-    // ization while naming the SAME file (a plain string compare misfires and
-    // blocks every in-place edit), so decide sameness through the filesystem:
-    // canonicalize resolves all of those on existing paths.
-    if output_path.exists() {
-        let original_fs_path = Path::new(&original_path);
-        let same_target = match (
-            fs::canonicalize(original_fs_path),
-            fs::canonicalize(&output_path),
-        ) {
-            (Ok(a), Ok(b)) => a == b,
-            _ => {
-                let norm = |p: &Path| p.to_string_lossy().to_lowercase().replace('/', "\\");
-                norm(original_fs_path) == norm(&output_path)
-            }
-        };
-        if !same_target {
-            return Err(format!(
-                "An archive named '{}' already exists. Please choose a different name.",
-                name
-            )
-            .into());
-        }
+    // other archive's bytes with no warning.
+    if output_path.exists() && !is_same_save_target(Path::new(&original_path), &output_path) {
+        return Err(format!(
+            "An archive named '{}' already exists. Please choose a different name.",
+            name
+        )
+        .into());
     }
 
     tracing::info!("Reading original save file: {:?}", original_path);
@@ -373,6 +373,24 @@ pub fn edit_save_file(json_data: &JsonValue, output_dir: &str) -> AppResult<Stri
     }
 
     if let Err(e) = add_save_to_mainsave(archive_name) {
+        // The registry mutations above (rename/move of the old entry) must be
+        // rolled back too — otherwise MAINSAVE references only the NEW slot
+        // while the file on disk still carries the OLD name, and the archive
+        // vanishes from both lists even though the original .sav is untouched.
+        if let Some(moved_from) = moved_old_entry {
+            if let Err(re) = crate::common::update_mainsave_archive_name(archive_name, moved_from) {
+                tracing::warn!(
+                    "Failed to roll back MAINSAVE rename '{}': {}",
+                    moved_from,
+                    re
+                );
+            }
+        }
+        if removed_old_entry {
+            if let Some(ref old_name) = old_archive_name {
+                let _ = add_save_to_mainsave(old_name);
+            }
+        }
         let _ = fs::remove_file(&temp_path);
         return Err(e);
     }
@@ -399,10 +417,14 @@ pub fn edit_save_file(json_data: &JsonValue, output_dir: &str) -> AppResult<Stri
         return Err(format!("Failed to rename temp file: {}", e).into());
     }
 
-    // Delete original save file only if it differs from output path
-    // (rename already overwrites output_path when they are the same)
+    // Delete original save file only if it names a DIFFERENT file than the
+    // output path (the rename already replaced output_path when they are the
+    // same). The overwrite guard above expects the two spellings to differ
+    // textually while naming the same file, so the same filesystem-based
+    // comparison must decide the delete — a raw Path != compare could delete
+    // the freshly-written save on a case/normalization mismatch.
     let original_path = Path::new(&original_path);
-    if original_path != output_path && original_path.exists() {
+    if original_path.exists() && !is_same_save_target(original_path, &output_path) {
         fs::remove_file(original_path).map_err(|e| format!("Failed to delete old file: {}", e))?;
         tracing::info!("Deleted original save file");
     }
@@ -1258,15 +1280,23 @@ pub fn unlock_all_hub_doors(file_path: &str) -> AppResult<String> {
 
     apply_unlock_all_hub_doors_in_place(&mut save)?;
 
-    // Write back to file
-    let file =
-        File::create(file_path).map_err(|e| format!("Failed to create output file: {}", e))?;
-    let mut writer = BufWriter::new(file);
-    save.write(&mut writer)
-        .map_err(|e| format!("Failed to write save: {:?}", e))?;
-    writer
-        .flush()
-        .map_err(|e| format!("Failed to flush buffer: {}", e))?;
+    // Write to a temp file first and rename over the original: File::create
+    // would truncate the archive up front, so a mid-write failure (disk full,
+    // transient IO error) would destroy the save with no recovery path.
+    let target_path = Path::new(file_path);
+    let temp_path = target_path.with_extension("sav.tmp");
+    {
+        let file =
+            File::create(&temp_path).map_err(|e| format!("Failed to create temp file: {}", e))?;
+        let mut writer = BufWriter::new(file);
+        save.write(&mut writer)
+            .map_err(|e| format!("Failed to write save: {:?}", e))?;
+        writer
+            .flush()
+            .map_err(|e| format!("Failed to flush buffer: {}", e))?;
+    }
+    fs::rename(&temp_path, target_path)
+        .map_err(|e| format!("Failed to replace save file: {}", e))?;
 
     tracing::info!("Hub door unlocking complete, save saved");
     Ok("Hub doors unlocked successfully".to_string())

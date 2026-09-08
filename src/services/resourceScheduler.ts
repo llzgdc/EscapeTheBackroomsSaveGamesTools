@@ -327,7 +327,10 @@ class ResourceScheduler {
   private _prediction: Prediction | null = null;
   private _predictionPhase: PredictionState["phase"] = "idle";
   private _predictionTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Operation types started by predict() — must not be ended by cancelPrediction if a real op took over. */
+  /** Operation types currently running as prediction placeholders. A type
+   *  stays marked until either a real beginOperation takes it over (unmark,
+   *  so cancelPrediction cannot end the real op) or the prediction is cleared
+   *  without the real op having started (end the placeholder). */
   private _predictedOperations = new Set<OperationType>();
 
   // ─── Operation Lifecycle ───────────────────────────────
@@ -340,7 +343,11 @@ class ResourceScheduler {
    * cleared — the real operation has started.
    */
   beginOperation(type: OperationType, metadata?: OperationContext["metadata"]): void {
-    const wasPredicted = this._predictedOperations.has(type);
+    // A real operation of this type is starting: unmark any prediction
+    // placeholder BEFORE clearing the prediction state — clearPrediction()
+    // ends still-marked placeholders, and the real op must survive a later
+    // cancelPrediction().
+    this._predictedOperations.delete(type);
 
     // Auto-clear prediction when the real operation starts
     if (this._prediction?.type === type) {
@@ -353,11 +360,6 @@ class ResourceScheduler {
       // Update metadata if already active
       if (metadata) {
         existing.metadata = metadata;
-      }
-      // Real op took over from prediction — remove from predicted set so
-      // cancelPrediction does NOT end this real op.
-      if (wasPredicted) {
-        this._predictedOperations.delete(type);
       }
       return;
     }
@@ -445,11 +447,21 @@ class ResourceScheduler {
     // Only commit resources if confidence is high enough
     if (confidence >= 0.7) {
       this._predictionPhase = "committed";
-      // Track that this operation was started by prediction so cancelPrediction
-      // can safely end it (and only it).
+      // Register a placeholder operation so resource allocation switches to
+      // the predicted profile immediately. This must NOT go through
+      // beginOperation() — that treats the call as a real operation taking
+      // over, which would unmark the placeholder and leave the auto-cancel
+      // below unable to ever end it.
       this._predictedOperations.add(type);
-      // Immediately begin allocating resources for the predicted operation
-      this.beginOperation(type, { totalItems: 0, completedItems: 0 });
+      this.operations.set(type, {
+        type,
+        priority: OPERATION_PRIORITY[type],
+        label: OPERATION_LABELS[type],
+        startedAt: performance.now(),
+        metadata: { totalItems: 0, completedItems: 0 },
+      });
+      this.applyProfile();
+      this.deprewarm();
     } else {
       this._predictionPhase = "preparing";
     }
@@ -470,18 +482,14 @@ class ResourceScheduler {
   /** Cancel the active prediction and revert resource allocation. */
   cancelPrediction(): void {
     if (!this._prediction) return;
-    const predictedType = this._prediction.type;
     this.clearPrediction();
-    // Only end the operation if it was started by the prediction AND not
-    // taken over by a real beginOperation call.
-    if (this._predictedOperations.has(predictedType)) {
-      this._predictedOperations.delete(predictedType);
-      this.endOperation(predictedType);
-    }
     this.deprewarm();
   }
 
-  /** Internal: clear prediction state without ending operations */
+  /** Internal: clear prediction state. Any operations still marked as
+   *  predicted are placeholders started by this prediction that a real
+   *  beginOperation never took over — end them here, otherwise nothing
+   *  ever does and they leak in `operations` for the whole session. */
   private clearPrediction(): void {
     this._prediction = null;
     this._predictionPhase = "idle";
@@ -489,10 +497,10 @@ class ResourceScheduler {
       clearTimeout(this._predictionTimer);
       this._predictionTimer = null;
     }
-    // Any ops still marked as predicted at this point were started by the
-    // prediction and never taken over by a real beginOperation. Remove them
-    // so cancelPrediction doesn't end real ops that started afterward.
-    this._predictedOperations.clear();
+    for (const type of this._predictedOperations) {
+      this._predictedOperations.delete(type);
+      this.endOperation(type);
+    }
   }
 
   /**

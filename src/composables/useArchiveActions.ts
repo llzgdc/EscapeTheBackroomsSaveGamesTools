@@ -387,32 +387,27 @@ export function useArchiveActions(
     return results;
   };
 
-  const registerUndoShortcuts = (): void => {
-    const handleKeyDown = (e: KeyboardEvent): void => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "z") {
-        e.preventDefault();
-        if (e.shiftKey) {
-          redo();
-        } else {
-          undo();
-        }
+  // Shared stable handler: removeEventListener only removes the exact same
+  // function object, so a second identical-looking closure in unregister
+  // would silently fail and leak the listener (re-firing undo/redo while
+  // Home is keep-alive cached on other routes).
+  const handleUndoKeyDown = (e: KeyboardEvent): void => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "z") {
+      e.preventDefault();
+      if (e.shiftKey) {
+        redo();
+      } else {
+        undo();
       }
-    };
-    window.addEventListener("keydown", handleKeyDown);
+    }
+  };
+
+  const registerUndoShortcuts = (): void => {
+    window.addEventListener("keydown", handleUndoKeyDown);
   };
 
   const unregisterUndoShortcuts = (): void => {
-    const handleKeyDown = (e: KeyboardEvent): void => {
-      if ((e.ctrlKey || e.metaKey) && e.key === "z") {
-        e.preventDefault();
-        if (e.shiftKey) {
-          redo();
-        } else {
-          undo();
-        }
-      }
-    };
-    window.removeEventListener("keydown", handleKeyDown);
+    window.removeEventListener("keydown", handleUndoKeyDown);
   };
 
   return {
