@@ -155,8 +155,7 @@ npm run tauri build
 |------|------|------|
 | [Vue 3](https://vuejs.org/) + Composition API | 3.x | 響應式 UI 框架 |
 | [TypeScript](https://www.typescriptlang.org/) | 6.x | 型別安全開發 |
-| [Vite](https://vite.dev/) | 6 | 建置工具和開發伺服器 |
-| [Tailwind CSS](https://tailwindcss.com/) | 4 | 原子化 CSS 框架 |
+| [Vite](https://vite.dev/) | 8.x | 建置工具和開發伺服器 |
 | CSS 自訂屬性 | — | 動態主題系統 |
 | [vue-i18n](https://vue-i18n.intlify.dev/) | — | 國際化 |
 | [Vue Router](https://router.vuejs.org/) | 4 | 單頁應用路由 |
@@ -174,7 +173,6 @@ npm run tauri build
 | [Tauri](https://v2.tauri.app/) | 2.0 | 桌面應用框架（Rust + WebView） |
 | [uesave](https://crates.io/crates/uesave) | 0.7.1 | UE4 存檔檔案解析與序列化 |
 | [serde](https://serde.rs/) + serde_json | — | 資料序列化/反序列化 |
-| [rusqlite](https://github.com/rusqlite/rusqlite) | — | 本機 SQLite 資料庫 |
 | [tokio](https://tokio.rs/) + [reqwest](https://docs.rs/reqwest/) | — | 非同步 HTTP 用戶端（更新檢查） |
 | [walkdir](https://github.com/BurntSushi/walkdir) + [memmap2](https://docs.rs/memmap2/) | — | 高效檔案遍歷與記憶體映射 I/O |
 | [rayon](https://github.com/rayon-rs/rayon) | — | 並行資料處理 |

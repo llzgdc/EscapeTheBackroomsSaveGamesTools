@@ -155,8 +155,7 @@ A: Open an issue on the [GitHub issue tracker](https://github.com/Eververdants/E
 |------------|---------|---------|
 | [Vue 3](https://vuejs.org/) + Composition API | 3.x | Reactive UI framework |
 | [TypeScript](https://www.typescriptlang.org/) | 6.x | Type-safe development |
-| [Vite](https://vite.dev/) | 6 | Build tool and dev server |
-| [Tailwind CSS](https://tailwindcss.com/) | 4 | Utility-first CSS framework |
+| [Vite](https://vite.dev/) | 8.x | Build tool and dev server |
 | CSS Custom Properties | — | Dynamic theme system |
 | [vue-i18n](https://vue-i18n.intlify.dev/) | — | Internationalization (i18n) |
 | [Vue Router](https://router.vuejs.org/) | 4 | SPA routing |
@@ -174,7 +173,6 @@ A: Open an issue on the [GitHub issue tracker](https://github.com/Eververdants/E
 | [Tauri](https://v2.tauri.app/) | 2.0 | Desktop application framework (Rust + WebView) |
 | [uesave](https://crates.io/crates/uesave) | 0.7.1 | UE4 save file parsing and serialization |
 | [serde](https://serde.rs/) + serde_json | — | Data serialization / deserialization |
-| [rusqlite](https://github.com/rusqlite/rusqlite) | — | Local SQLite database for app state |
 | [tokio](https://tokio.rs/) + [reqwest](https://docs.rs/reqwest/) | — | Async HTTP client (update checks) |
 | [walkdir](https://github.com/BurntSushi/walkdir) + [memmap2](https://docs.rs/memmap2/) | — | Efficient file system traversal and memory-mapped I/O |
 | [rayon](https://github.com/rayon-rs/rayon) | — | Parallel data processing |
