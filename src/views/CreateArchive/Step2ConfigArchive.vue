@@ -25,6 +25,9 @@
 </template>
 
 <script setup>
+import ArchiveNameCard from "@/components/archive/ArchiveNameCard.vue";
+import DifficultySelector from "@/components/archive/DifficultySelector.vue";
+
 defineProps({
   archiveName: { type: String, default: "" },
   selectedDifficulty: { type: String, default: "normal" },
