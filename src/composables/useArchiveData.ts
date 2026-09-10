@@ -474,11 +474,15 @@ export function useArchiveData(): {
     }
   };
 
-  const archiveStats = computed((): ArchiveStats => ({
-    total: archives.value.length,
-    visible: archives.value.filter((a) => a.isVisible).length,
-    hidden: archives.value.filter((a) => !a.isVisible).length,
-  }));
+  const archiveStats = computed((): ArchiveStats => {
+    let visible = 0;
+    let hidden = 0;
+    for (const a of archives.value) {
+      if (a.isVisible) visible++;
+      else hidden++;
+    }
+    return { total: archives.value.length, visible, hidden };
+  });
 
   return {
     archives,

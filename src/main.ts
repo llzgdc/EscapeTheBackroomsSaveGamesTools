@@ -133,9 +133,13 @@ async function initApp(): Promise<typeof app> {
   // Phase 5: Background-load non-critical modules (non-blocking)
   requestIdleCallback(
     () => {
-      Promise.all([loadAllIcons(), loadOtherLocales(), initWindowTitle(i18n)]).then(() => {
-        console.info(`[Startup] Full initialization: ${(performance.now() - startTime).toFixed(0)}ms`);
-      });
+      Promise.all([loadAllIcons(), loadOtherLocales(), initWindowTitle(i18n)])
+        .then(() => {
+          console.info(`[Startup] Full initialization: ${(performance.now() - startTime).toFixed(0)}ms`);
+        })
+        .catch((err) => {
+          console.warn("[Startup] Background init failed:", err instanceof Error ? err.message : err);
+        });
     },
     { timeout: 2000 },
   );
@@ -183,7 +187,11 @@ requestIdleCallback(
 
 // Disable interactions in production mode (prevent shortcuts, text selection, etc.)
 if (import.meta.env.PROD) {
-  import("./utils/disableInteractions").then(({ disableInteractions }) => {
-    disableInteractions();
-  });
+  import("./utils/disableInteractions")
+    .then(({ disableInteractions }) => {
+      disableInteractions();
+    })
+    .catch((err) => {
+      console.warn("[Startup] Failed to load disableInteractions:", err instanceof Error ? err.message : err);
+    });
 }

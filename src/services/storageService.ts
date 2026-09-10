@@ -200,7 +200,12 @@ function restoreFlushBackup(): void {
  * Set up page lifecycle flush hooks (visibilitychange + beforeunload)
  * Called internally after init, or can be called manually.
  */
+let lifecycleFlushInitialized = false;
+
 function setupLifecycleFlush(): void {
+  if (lifecycleFlushInitialized) return;
+  lifecycleFlushInitialized = true;
+
   // Flush when tab becomes hidden (mobile/smartphone tab switch, desktop minimize)
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "hidden") {

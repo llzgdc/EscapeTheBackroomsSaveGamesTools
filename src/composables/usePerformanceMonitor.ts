@@ -6,7 +6,7 @@ import type { PerformanceMonitor } from "@/utils/performance";
 let monitorInitialized = false;
 let globalPerformanceMonitor: PerformanceMonitor | null = null;
 // Promise-based guard prevents race: concurrent callers await the same init
-const initPromise: Promise<void> | null = null;
+let initPromise: Promise<void> | null = null;
 
 interface PerformanceMonitorReturn {
   showPerformanceSettings: Ref<boolean>;
@@ -59,7 +59,8 @@ export function usePerformanceMonitor(): PerformanceMonitorReturn {
     }
     monitorInitialized = true;
 
-    const devicePerf = detectDevicePerformance();
+    initPromise = (async () => {
+      const devicePerf = detectDevicePerformance();
     const longTaskThreshold = devicePerf.isVeryLowEndDevice ? 30 : 50;
     const fpsThreshold = devicePerf.isVeryLowEndDevice ? 20 : 30;
     let longTaskCount = 0;
@@ -113,6 +114,9 @@ export function usePerformanceMonitor(): PerformanceMonitorReturn {
       animationQuality.value = "disabled";
     }
     startDisplayWatcher();
+    })().finally(() => {
+      initPromise = null;
+    });
   };
 
   /**

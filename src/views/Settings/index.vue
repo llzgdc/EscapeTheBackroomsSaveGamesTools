@@ -98,8 +98,6 @@ async function updateWindowTitle() {
 
     // Call backend to set window title
     await invoke("set_window_title", { title: appName });
-
-    console.info("Window title updated to:", appName);
   } catch (error) {
     console.error("Failed to update window title:", error);
     // Don't throw error; language switch should not fail due to title update failure

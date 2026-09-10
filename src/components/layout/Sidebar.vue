@@ -81,8 +81,8 @@
   </div>
 </template>
 
-<script setup>
-import { ref, computed, onMounted, nextTick, watch } from "vue";
+<script setup lang="ts">
+import { ref, computed, onMounted, onUnmounted, nextTick, watch, type Ref } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { topMenuItems, bottomMenuItems } from "@/config/sidebarMenu";
 import { gsap } from "gsap";
@@ -97,7 +97,7 @@ const router = useRouter();
 const useSidebarState = () => {
   const isExpanded = ref(false);
   const sidebarRef = ref(null);
-  const activeItemId = ref(null);
+  const activeItemId = ref<number | null>(null);
 
   const handleMouseEnter = () => {
     isExpanded.value = true;
@@ -123,9 +123,9 @@ const useSidebarI18n = () => {
     return i18n ? i18n.locale.value || i18n.locale : "zh-CN";
   });
 
-  const safeT = (key) => {
+  const safeT = (key: string): string => {
     const translateFn = t.value;
-    return typeof translateFn === "function" ? translateFn(key) : key;
+    return typeof translateFn === "function" ? String(translateFn(key)) : key;
   };
 
   return { t, currentLanguage, safeT };
@@ -139,30 +139,32 @@ const useSidebarMenuItems = () => {
   return { filteredTopMenuItems };
 };
 
-const useSidebarRouteHandler = (activeItemId) => {
+const useSidebarRouteHandler = (activeItemId: Ref<number | null>) => {
   const setActiveItemFromRoute = () => {
     const allMenuItems = [...topMenuItems.value, ...bottomMenuItems.value];
     let activeItem;
 
-    if (route.name === "SelectCreateMode") {
+    const routeName = route.name as string | undefined;
+    if (routeName === "SelectCreateMode") {
       activeItem = allMenuItems.find((item) => item.route === "CreateArchive");
-    } else if (["CreateArchive", "QuickCreateArchive", "BatchCreateArchive"].includes(route.name)) {
+    } else if (routeName && ["CreateArchive", "QuickCreateArchive", "BatchCreateArchive"].includes(routeName)) {
       activeItem = allMenuItems.find((item) => item.route === "CreateArchive");
     } else {
-      activeItem = allMenuItems.find((item) => item.route === route.name);
+      activeItem = allMenuItems.find((item) => item.route === routeName);
     }
 
-    activeItemId.value = activeItem ? activeItem.id : 1;
+    activeItemId.value = activeItem ? activeItem.id : 1; // default to first menu item
   };
 
   return { setActiveItemFromRoute };
 };
 
-const useSidebarTheme = (sidebarRef) => {
+const useSidebarTheme = (sidebarRef: Ref<HTMLElement | null>) => {
   const detectTheme = () => {
-    if (window.themeManager && typeof window.themeManager.applyTheme === "function") {
-      const savedTheme = storageService.getItem("theme") || "light";
-      window.themeManager.applyTheme(savedTheme);
+    const win = window as unknown as { themeManager?: { applyTheme?: (t: string) => void } };
+    if (win.themeManager && typeof win.themeManager.applyTheme === "function") {
+      const savedTheme = storageService.getItem<string>("theme") || "light";
+      win.themeManager.applyTheme(savedTheme);
     } else {
       document.documentElement.setAttribute("data-theme", "light");
     }
@@ -179,13 +181,13 @@ const useSidebarTheme = (sidebarRef) => {
   return { detectTheme };
 };
 
-const useSidebarMenuItemManager = (_activeItemId, _setActiveItemFromRoute) => {
+const useSidebarMenuItemManager = (_activeItemId: Ref<number | null>, _setActiveItemFromRoute: () => void) => {
   // No dynamic menu items currently managed
   return {};
 };
 
 const useSidebarTextMeasurement = () => {
-  const getTextWidth = (text) => {
+  const getTextWidth = (text: string) => {
     const tempElement = document.createElement("span");
     tempElement.style.position = "absolute";
     tempElement.style.visibility = "hidden";
@@ -201,7 +203,7 @@ const useSidebarTextMeasurement = () => {
     return textWidth;
   };
 
-  const checkTextOverflow = (element, text) => {
+  const checkTextOverflow = (element: HTMLElement | null, text: string) => {
     if (!element) return false;
     const textWidth = getTextWidth(text);
     return textWidth > 150;
@@ -210,26 +212,29 @@ const useSidebarTextMeasurement = () => {
   return { getTextWidth, checkTextOverflow };
 };
 
-const useSidebarMouseInteractions = (checkTextOverflow, getTextWidth) => {
+const useSidebarMouseInteractions = (
+  checkTextOverflow: (el: HTMLElement | null, text: string) => boolean,
+  getTextWidth: (text: string) => number,
+) => {
   let isMouseDown = false;
-  let currentPressedItem = null;
+  let currentPressedItem: HTMLElement | null = null;
 
-  const handleMouseDown = (event) => {
+  const handleMouseDown = (event: MouseEvent) => {
     isMouseDown = true;
-    currentPressedItem = event.currentTarget;
+    currentPressedItem = event.currentTarget as HTMLElement;
     gsap.to(currentPressedItem, { scale: 0.95, duration: 0.1, ease: "power2.out" });
   };
 
-  const handleMouseEnterItem = (event) => {
+  const handleMouseEnterItem = (event: MouseEvent) => {
     if (isMouseDown) {
       if (currentPressedItem && currentPressedItem !== event.currentTarget) {
         gsap.to(currentPressedItem, { scale: 1, duration: 0.1, ease: "power2.out" });
       }
-      currentPressedItem = event.currentTarget;
+      currentPressedItem = event.currentTarget as HTMLElement;
       gsap.to(currentPressedItem, { scale: 0.95, duration: 0.1, ease: "power2.out" });
     }
 
-    const textElement = event.currentTarget.querySelector(".sidebar-text");
+    const textElement = (event.currentTarget as HTMLElement).querySelector(".sidebar-text") as HTMLElement | null;
     const itemText = textElement?.getAttribute("data-text") || textElement?.textContent || "";
     if (!textElement || !itemText) return;
 
@@ -247,13 +252,13 @@ const useSidebarMouseInteractions = (checkTextOverflow, getTextWidth) => {
     }
   };
 
-  const handleMouseLeaveItem = (event) => {
+  const handleMouseLeaveItem = (event: MouseEvent) => {
     if (!isMouseDown && currentPressedItem) {
       gsap.to(currentPressedItem, { scale: 1, duration: 0.1, ease: "power2.out" });
       currentPressedItem = null;
     }
 
-    const textElement = event.currentTarget.querySelector(".sidebar-text");
+    const textElement = (event.currentTarget as HTMLElement).querySelector(".sidebar-text") as HTMLElement | null;
     if (textElement && textElement.classList.contains("scroll-active")) {
       const style = window.getComputedStyle(textElement);
       const matrix = new DOMMatrix(style.transform);
@@ -285,16 +290,15 @@ const useSidebarMouseInteractions = (checkTextOverflow, getTextWidth) => {
   return { handleMouseDown, handleMouseEnterItem, handleMouseLeaveItem, handleMouseUp };
 };
 
-const useSidebarActions = (activeItemId, safeT) => {
-  let currentPressedItem = null;
+const useSidebarActions = (activeItemId: Ref<number | null>, _safeT: (key: string) => string) => {
+  let currentPressedItem: HTMLElement | null = null;
 
   const allFlatMenuItems = computed(() => {
     return [...topMenuItems.value, ...bottomMenuItems.value];
   });
 
-  const handleItemClick = (item) => {
+  const handleItemClick = (item: { id: number; action?: string; route?: string }, _event?: MouseEvent) => {
     activeItemId.value = item.id;
-    console.info("Item clicked:", safeT(item.textKey));
 
     if (item.action) {
       window.dispatchEvent(new CustomEvent("sidebar-action", { detail: { action: item.action, item } }));
@@ -310,7 +314,7 @@ const useSidebarActions = (activeItemId, safeT) => {
     }
   };
 
-  const handleKeydown = (event) => {
+  const handleKeydown = (event: KeyboardEvent) => {
     if (!isExpanded.value) return;
 
     const flatItems = allFlatMenuItems.value;
@@ -354,7 +358,7 @@ const useSidebarActions = (activeItemId, safeT) => {
 
       // Focus the corresponding DOM element
       const targetEl = document.querySelector(`[data-item-id="${targetItem.id}"]`);
-      if (targetEl) targetEl.focus();
+      if (targetEl) (targetEl as HTMLElement).focus();
     }
   };
 
@@ -375,6 +379,15 @@ const { handleMouseDown, handleMouseEnterItem, handleMouseLeaveItem, handleMouse
 );
 const { handleItemClick, handleKeydown } = useSidebarActions(activeItemId, safeT);
 
+const onToggleSidebar = (e: Event) => {
+  const detail = (e as CustomEvent).detail;
+  if (detail.collapsed && isExpanded.value) handleMouseLeave();
+  else if (!detail.collapsed && !isExpanded.value) handleMouseEnter();
+};
+
+const onPluginMenuAdded = () => nextTick(() => setActiveItemFromRoute());
+const onPluginMenuRemoved = () => nextTick(() => setActiveItemFromRoute());
+
 onMounted(() => {
   setActiveItemFromRoute();
   detectTheme();
@@ -386,21 +399,20 @@ onMounted(() => {
 
   watch(currentLanguage, () => nextTick(() => {}));
 
-  // ─── Watch Pinia store for shared state ────────────────
-  // Replaces window.dispatchEvent/addEventListener pattern
-
   watch(
     () => appStore.language,
     () => nextTick(() => {}),
   );
 
-  window.addEventListener("toggle-sidebar", (e) => {
-    if (e.detail.collapsed && isExpanded.value) handleMouseLeave();
-    else if (!e.detail.collapsed && !isExpanded.value) handleMouseEnter();
-  });
+  window.addEventListener("toggle-sidebar", onToggleSidebar);
+  window.addEventListener("plugin-menu-added", onPluginMenuAdded);
+  window.addEventListener("plugin-menu-removed", onPluginMenuRemoved);
+});
 
-  window.addEventListener("plugin-menu-added", () => nextTick(() => setActiveItemFromRoute()));
-  window.addEventListener("plugin-menu-removed", () => nextTick(() => setActiveItemFromRoute()));
+onUnmounted(() => {
+  window.removeEventListener("toggle-sidebar", onToggleSidebar);
+  window.removeEventListener("plugin-menu-added", onPluginMenuAdded);
+  window.removeEventListener("plugin-menu-removed", onPluginMenuRemoved);
 });
 </script>
 

@@ -30,8 +30,8 @@
   </div>
 </template>
 
-<script setup>
-import { ref, watch, onMounted } from "vue";
+<script setup lang="ts">
+import { ref, watch, onMounted, onUnmounted } from "vue";
 import { getAppContext } from "@/appContext.js";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useAppStore } from "@/stores/appStore";
@@ -45,7 +45,8 @@ const updateAppName = () => {
     const { i18n } = getAppContext();
     if (i18n && i18n.t) {
       appName.value = i18n.t("app.name");
-      currentLanguage.value = i18n.locale.value || i18n.locale || "zh-CN";
+      const locale = i18n.locale;
+      currentLanguage.value = typeof locale === "string" ? locale : (locale.value as string) || "zh-CN";
     }
   } catch (error) {
     console.warn("Failed to update app name:", error);
@@ -58,37 +59,50 @@ const appStore = useAppStore();
 const appWindow = getCurrentWindow();
 const sidebarCollapsed = ref(false);
 
-// Vue方法定义
 const handleMinimize = () => {
-  console.info("最小化按钮被点击");
   appWindow.minimize().catch((err) => {
     console.error("最小化失败:", err);
   });
 };
 
 const handleMaximize = () => {
-  console.info("最大化按钮被点击");
   appWindow.toggleMaximize().catch((err) => {
     console.error("最大化失败:", err);
   });
 };
 
 const handleClose = () => {
-  console.info("关闭按钮被点击");
   appWindow.close().catch((err) => {
     console.error("关闭失败:", err);
   });
 };
 
+const onSidebarStateChange = (e: Event) => {
+  sidebarCollapsed.value = (e as CustomEvent).detail.collapsed;
+};
+
+const onTitlebarMouseDown = (e: MouseEvent) => {
+  const isButtonClick = (e.target as HTMLElement)?.closest(".titlebar-button");
+  if (isButtonClick) return;
+
+  if (e.buttons === 1) {
+    if (e.detail === 2) {
+      appWindow.toggleMaximize().catch((err) => {
+        console.error("双击最大化失败:", err);
+      });
+    } else {
+      appWindow.startDragging().catch((err) => {
+        console.error("拖拽失败:", err);
+      });
+    }
+  }
+};
+
 onMounted(() => {
-  // 初始化应用名称
   updateAppName();
 
-  window.addEventListener("sidebar-state-change", (e) => {
-    sidebarCollapsed.value = e.detail.collapsed;
-  });
+  window.addEventListener("sidebar-state-change", onSidebarStateChange);
 
-  // 监听语言变化事件（通过 Pinia store，取代 window.dispatchEvent）
   watch(
     () => appStore.language,
     () => {
@@ -96,27 +110,17 @@ onMounted(() => {
     },
   );
 
-  // 标题栏拖拽功能
   const titlebar = document.getElementById("titlebar");
   if (titlebar) {
-    titlebar.addEventListener("mousedown", (e) => {
-      // 检查点击的是否是按钮区域
-      const isButtonClick = e.target.closest(".titlebar-button");
-      if (isButtonClick) {
-        console.info("点击的是按钮区域，不触发拖拽");
-        return;
-      }
+    titlebar.addEventListener("mousedown", onTitlebarMouseDown);
+  }
+});
 
-      if (e.buttons === 1) {
-        if (e.detail === 2) {
-          console.info("双击最大化");
-          appWindow.toggleMaximize();
-        } else {
-          console.info("开始拖拽");
-          appWindow.startDragging();
-        }
-      }
-    });
+onUnmounted(() => {
+  window.removeEventListener("sidebar-state-change", onSidebarStateChange);
+  const titlebar = document.getElementById("titlebar");
+  if (titlebar) {
+    titlebar.removeEventListener("mousedown", onTitlebarMouseDown);
   }
 });
 </script>
