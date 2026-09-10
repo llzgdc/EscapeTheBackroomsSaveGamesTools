@@ -63,6 +63,10 @@
   "saveSuccess": "存檔儲存成功",
   "saving": "儲存中...",
   "saveError": "儲存失敗：{error}",
+  "nameTakenTitle": "存檔名稱已被占用",
+  "nameTakenConflict": "存檔 “{name}” 已存在",
+  "nameTakenSuggestion": "可以改用名稱 “{suggestion}”，點擊下方按鈕直接套用。",
+  "useSuggestedAndSave": "改用 “{suggestion}” 儲存",
   "saveConfirm": {
     "title": "儲存存檔",
     "message": "確定要儲存對此存檔的變更嗎？",

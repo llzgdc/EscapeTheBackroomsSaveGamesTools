@@ -6,6 +6,7 @@ use crate::common::{get_app_config_dir, get_save_games_dir, validate_save_games_
 use crate::error::AppResult;
 use crate::player_data;
 use crate::save_editor;
+use serde::Serialize;
 use serde_json::json;
 use serde_json::Value;
 use std::collections::HashMap;
@@ -286,6 +287,91 @@ pub async fn handle_edit_save(json_input: Value) -> AppResult<String> {
 
         let json_value = Value::Object(json_data.clone());
         save_editor::edit_save_file(&json_value, output_dir)
+    })
+    .await
+}
+
+/// Result of a pre-flight archive-name availability check.
+#[derive(Debug, Serialize)]
+pub struct ArchiveNameCheck {
+    /// false when the name+difficulty already maps to an existing .sav
+    /// (other than the caller's own file, when `exclude_path` matches).
+    pub available: bool,
+    /// First available alternative like "Hotel (2)"; empty when available.
+    pub suggestion: String,
+}
+
+/// Pre-flight check used by the create/edit UIs: mirrors create_new_save's
+/// filename construction (`MULTIPLAYER_{name}_{sanitized difficulty}.sav`) so
+/// the UI can warn BEFORE the backend's overwrite guard rejects the request,
+/// and propose a name that is guaranteed to pass that guard.
+///
+/// `difficulty` must be the same string the caller will pass to
+/// handle_new_save / handle_edit_save — it is sanitized with the exact same
+/// alphanumeric filter create_new_save applies.
+/// `exclude_path` lets the edit flow treat its OWN .sav as available
+/// (keeping the current name must not be flagged as a conflict).
+#[tauri::command]
+pub async fn check_archive_name(
+    name: String,
+    difficulty: String,
+    exclude_path: Option<String>,
+) -> AppResult<ArchiveNameCheck> {
+    run_blocking(move || {
+        let name = name.trim();
+        // Empty names never reach creation (it rejects them first), so report
+        // available and let the regular validation surface the real problem.
+        if name.is_empty() {
+            return Ok(ArchiveNameCheck {
+                available: true,
+                suggestion: String::new(),
+            });
+        }
+
+        // Mirror new_save.rs: difficulty is filtered to alphanumerics.
+        let sanitized_difficulty: String =
+            difficulty.chars().filter(|c| c.is_alphanumeric()).collect();
+
+        let candidate_target = |candidate: &str| -> AppResult<PathBuf> {
+            let file_name = format!("MULTIPLAYER_{}_{}.sav", candidate, sanitized_difficulty);
+            let path = get_save_games_dir()?.join(file_name);
+            validate_save_games_path(&path)?;
+            Ok(path)
+        };
+
+        let target = candidate_target(name)?;
+        // Filesystem-based sameness (canonicalize) rather than string compare:
+        // the frontend-supplied path can differ in separators/case while naming
+        // the same file — keeping the archive's own name is not a conflict.
+        let is_own_file = exclude_path
+            .as_deref()
+            .map(|p| save_editor::is_same_save_target(Path::new(p), &target))
+            .unwrap_or(false);
+        let available = !target.exists() || is_own_file;
+        if available {
+            return Ok(ArchiveNameCheck {
+                available: true,
+                suggestion: String::new(),
+            });
+        }
+
+        // Suggest the first free "name (2)" / "name (3)" … variant. Parentheses
+        // and spaces are legal archive-name characters in both create and edit
+        // flows, so the suggestion passes their filename-safety validation.
+        let mut suggestion = String::new();
+        for suffix in 2..=99 {
+            let candidate = format!("{} ({})", name, suffix);
+            if !candidate_target(&candidate)?.exists() {
+                suggestion = candidate;
+                break;
+            }
+        }
+        // No suffix free (99 collisions): leave suggestion empty; the UI then
+        // shows only the conflict without a one-click fix.
+        Ok(ArchiveNameCheck {
+            available: false,
+            suggestion,
+        })
     })
     .await
 }

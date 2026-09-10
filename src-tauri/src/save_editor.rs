@@ -1,7 +1,7 @@
 use crate::common::{
     add_save_to_mainsave, extract_archive_name, remove_save_from_mainsave, validate_save_games_path,
 };
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
 use crate::new_save::{update_bool_property, update_meg_status, ALL_LEVELS, MAIN_STORYLINE_LEVELS};
 use crate::save_shared;
 use serde_json::Value as JsonValue;
@@ -21,7 +21,7 @@ use uesave::{
 /// decide sameness through the filesystem: canonicalize resolves all of
 /// those on existing paths; the normalized string compare only serves as a
 /// fallback for paths that no longer exist.
-fn is_same_save_target(a: &Path, b: &Path) -> bool {
+pub(crate) fn is_same_save_target(a: &Path, b: &Path) -> bool {
     match (fs::canonicalize(a), fs::canonicalize(b)) {
         (Ok(ca), Ok(cb)) => ca == cb,
         _ => {
@@ -233,13 +233,10 @@ pub fn edit_save_file(json_data: &JsonValue, output_dir: &str) -> AppResult<Stri
 
     // Refuse to save under a DIFFERENT archive's name: fs::rename replaces
     // existing targets on all platforms, so that would silently destroy the
-    // other archive's bytes with no warning.
+    // other archive's bytes with no warning. Typed DuplicateName so the
+    // frontend can offer a rename suggestion instead of a dead-end error.
     if output_path.exists() && !is_same_save_target(Path::new(&original_path), &output_path) {
-        return Err(format!(
-            "An archive named '{}' already exists. Please choose a different name.",
-            name
-        )
-        .into());
+        return Err(AppError::DuplicateName(name.to_string()));
     }
 
     tracing::info!("Reading original save file: {:?}", original_path);
@@ -425,8 +422,35 @@ pub fn edit_save_file(json_data: &JsonValue, output_dir: &str) -> AppResult<Stri
     // the freshly-written save on a case/normalization mismatch.
     let original_path = Path::new(&original_path);
     if original_path.exists() && !is_same_save_target(original_path, &output_path) {
-        fs::remove_file(original_path).map_err(|e| format!("Failed to delete old file: {}", e))?;
-        tracing::info!("Deleted original save file");
+        // Best-effort: by now the rename and MAINSAFE re-registration have
+        // fully succeeded, so failing the whole save here would report
+        // "save failed" for an operation that actually worked (and leave the
+        // UI showing the old name — the user reads that as "rename didn't
+        // apply"). A delete failure (e.g. the game holding the file open)
+        // merely leaves an unregistered orphan .sav behind.
+        let mut deleted = false;
+        for attempt in 0..2 {
+            match fs::remove_file(original_path) {
+                Ok(()) => {
+                    deleted = true;
+                    break;
+                }
+                Err(e) if attempt == 0 => {
+                    tracing::warn!("Old save file delete failed, retrying once: {}", e);
+                    std::thread::sleep(std::time::Duration::from_millis(100));
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        "Failed to delete old save file '{}' — leaving unregistered orphan: {}",
+                        original_path.display(),
+                        e
+                    );
+                }
+            }
+        }
+        if deleted {
+            tracing::info!("Deleted original save file");
+        }
     }
 
     // Self-healing visibility guard: listings mark an archive hidden when its

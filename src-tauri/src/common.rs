@@ -490,9 +490,10 @@ pub fn update_mainsave_archive_name(old_name: &str, new_name: &str) -> AppResult
         for save in saves.iter_mut() {
             if save == old_name {
                 *save = new_name.to_string();
-                // Keep the naming table keyed by the new slot name; the
-                // mapped value (possibly a custom name) moves unchanged.
-                display_name::move_display_entry(&mut mainsave, old_name, new_name);
+                // Keep the naming table keyed by the new slot name. A value
+                // that merely mirrored the OLD base name (auto-generated)
+                // follows the rename; a custom in-game name moves unchanged.
+                display_name::move_display_entry_following_base(&mut mainsave, old_name, new_name);
                 write_mainsave(&mainsave)?;
                 return Ok(true);
             }

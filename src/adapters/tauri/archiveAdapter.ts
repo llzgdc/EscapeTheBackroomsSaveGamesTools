@@ -8,9 +8,11 @@ import type {
   Archive,
   ArchiveMetadata,
   ArchiveDetail,
+  ArchiveNameAvailability,
   CreateArchiveOptions,
 } from "@/domain/archive/models";
 import type { ArchiveServiceResult } from "@/domain/archive/service";
+import { detectDuplicateNameError } from "@/domain/archive/nameConflict";
 
 /**
  * Extract a readable message from a Tauri invoke rejection.
@@ -315,7 +317,33 @@ export class TauriArchiveAdapter {
       return {
         success: false,
         error: normalizeInvokeError(error),
+        errorType: detectDuplicateNameError(error) ? "duplicate_name" : undefined,
       };
+    }
+  }
+
+  /**
+   * Pre-flight name availability check backed by `check_archive_name`.
+   * Mirrors the create/edit filename construction, so a positive answer
+   * guarantees the backend's overwrite guard will not reject the request.
+   * `difficulty` must be the exact string that will be passed to
+   * createArchive / handle_edit_save.
+   * `excludePath` lets the edit flow treat its own .sav as available.
+   */
+  async checkArchiveName(
+    archiveName: string,
+    difficulty: string,
+    excludePath?: string,
+  ): Promise<ArchiveServiceResult<ArchiveNameAvailability>> {
+    try {
+      const result = await invoke<ArchiveNameAvailability>("check_archive_name", {
+        name: archiveName,
+        difficulty,
+        excludePath: excludePath ?? null,
+      });
+      return { success: true, data: result };
+    } catch (error) {
+      return { success: false, error: normalizeInvokeError(error) };
     }
   }
 

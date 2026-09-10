@@ -10,6 +10,11 @@ pub enum AppError {
     Io(String),
     #[error("Parse error: {0}")]
     Parse(String),
+    /// A create/rename target name collides with an existing archive.
+    /// Typed variant (instead of General) so the frontend can detect
+    /// `type == "duplicate_name"` and offer a fix instead of a dead-end error.
+    #[error("An archive named '{0}' already exists. Please choose a different name.")]
+    DuplicateName(String),
     #[error("Validation error: {0}")]
     #[allow(dead_code)]
     Validation(String),
@@ -28,6 +33,7 @@ impl Serialize for AppError {
         let (ty, msg) = match self {
             AppError::Io(msg) => ("io", msg),
             AppError::Parse(msg) => ("parse", msg),
+            AppError::DuplicateName(msg) => ("duplicate_name", msg),
             AppError::Validation(msg) => ("validation", msg),
             AppError::General(msg) => ("general", msg),
         };

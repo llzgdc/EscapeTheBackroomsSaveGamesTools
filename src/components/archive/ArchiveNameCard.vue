@@ -20,6 +20,25 @@
           {{ errorText }}
         </div>
       </transition>
+      <!-- Name-conflict resolution: not just an error — offer a one-click fix -->
+      <transition name="error-fade">
+        <div v-if="conflictText" class="conflict-message" role="alert">
+          <span class="conflict-text">
+            <font-awesome-icon :icon="['fas', 'triangle-exclamation']" />
+            {{ conflictText }}
+          </span>
+          <button
+            v-if="suggestion"
+            type="button"
+            class="conflict-suggestion-btn"
+            :title="$t('common.useSuggestedName')"
+            @click="$emit('use-suggestion')"
+          >
+            <font-awesome-icon :icon="['fas', 'wand-magic-sparkles']" />
+            {{ suggestion }}
+          </button>
+        </div>
+      </transition>
     </div>
   </div>
 </template>
@@ -31,11 +50,15 @@ defineProps({
   placeholder: { type: String, default: "" },
   // When set, an underscore in the name shows this error message
   errorText: { type: String, default: "" },
+  // Name-conflict state: message shown when set, plus a one-click
+  // "switch to suggestion" button when a suggestion is available
+  conflictText: { type: String, default: "" },
+  suggestion: { type: String, default: "" },
   maxlength: { type: Number, default: 50 },
   modelValue: { type: String, default: "" },
 });
 
-defineEmits(["update:modelValue"]);
+defineEmits(["update:modelValue", "use-suggestion"]);
 </script>
 
 <style scoped>
@@ -156,6 +179,50 @@ defineEmits(["update:modelValue"]);
   border-radius: var(--radius-xs);
   color: var(--error-color);
   font-size: 13px;
+}
+
+/* ── 名称冲突提醒（附解决办法）── */
+.conflict-message {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  padding: 8px 12px;
+  background: color-mix(in srgb, var(--warning-color) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--warning-color) 30%, transparent);
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.conflict-text {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--warning-color);
+  font-weight: 500;
+}
+
+.conflict-suggestion-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent-color) 40%, transparent);
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--accent-color) 12%, transparent);
+  color: var(--accent-color);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all var(--transition-normal) var(--ease-default);
+}
+
+.conflict-suggestion-btn:hover {
+  background: var(--accent-color);
+  color: white;
+  transform: translateY(-1px);
 }
 
 .error-fade-enter-active,

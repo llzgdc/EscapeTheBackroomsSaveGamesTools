@@ -8,7 +8,10 @@
         :label="$t('createArchive.archiveName')"
         :placeholder="$t('createArchive.archiveNamePlaceholder')"
         :error-text="$t('createArchive.archiveNameError')"
+        :conflict-text="nameConflict ? $t('createArchive.nameTakenConflict', { name: nameConflict }) : ''"
+        :suggestion="nameSuggestion"
         @update:model-value="$emit('update:archiveName', $event)"
+        @use-suggestion="$emit('use-suggested-name')"
       />
 
       <!-- Difficulty Settings -->
@@ -32,9 +35,12 @@ defineProps({
   archiveName: { type: String, default: "" },
   selectedDifficulty: { type: String, default: "normal" },
   selectedActualDifficulty: { type: String, default: "normal" },
+  // Live name-conflict state from useArchiveNameCheck (parent-owned)
+  nameConflict: { type: String, default: "" },
+  nameSuggestion: { type: String, default: "" },
 });
 
-defineEmits(["update:archiveName", "select-difficulty", "select-actual-difficulty"]);
+defineEmits(["update:archiveName", "select-difficulty", "select-actual-difficulty", "use-suggested-name"]);
 </script>
 
 <style scoped>

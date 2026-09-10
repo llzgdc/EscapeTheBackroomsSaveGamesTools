@@ -1,6 +1,7 @@
 use crate::common::{
     add_save_to_mainsave, extract_archive_name, get_local_appdata_dir, get_mainsave_path,
 };
+use crate::error::AppError;
 use crate::error::AppResult;
 use crate::save_shared;
 use serde::{Deserialize, Serialize};
@@ -166,13 +167,10 @@ pub fn create_new_save(save_data: SaveData) -> AppResult<()> {
     // The write below replaces existing targets silently. Refuse to overwrite
     // an existing archive — same guard as edit_save_file's rename — otherwise
     // creating an archive whose name+difficulty collides with one on disk
-    // destroys the old save with no warning.
+    // destroys the old save with no warning. Typed DuplicateName so the
+    // frontend offers a rename suggestion instead of a dead-end error.
     if save_path.exists() {
-        return Err(format!(
-            "An archive named '{}' already exists. Please choose a different name.",
-            save_data.archive_name
-        )
-        .into());
+        return Err(AppError::DuplicateName(save_data.archive_name.clone()));
     }
 
     tracing::info!("Target save path: {:?}", save_path);

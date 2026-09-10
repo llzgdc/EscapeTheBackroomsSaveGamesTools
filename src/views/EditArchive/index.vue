@@ -51,6 +51,9 @@
           v-model:name="formData.name"
           v-model:archive-difficulty="formData.archiveDifficulty"
           v-model:actual-difficulty="formData.actualDifficulty"
+          :name-conflict="nameConflict"
+          :name-suggestion="suggestedName"
+          @use-suggested-name="useSuggestedName"
           @unlock-hub-doors="unlockAllHubDoors"
         />
       </div>
@@ -77,6 +80,20 @@
       </div>
     </div>
 
+    <!-- Name-conflict resolution: offered instead of failing the save -->
+    <ConfirmModal
+      :show="nameConflictModal.visible"
+      type="warning"
+      :title="$t('editArchive.nameTakenTitle')"
+      :message="$t('editArchive.nameTakenConflict', { name: nameConflictModal.name })"
+      :description="$t('editArchive.nameTakenSuggestion', { suggestion: nameConflictModal.suggestion })"
+      :confirm-text="$t('editArchive.useSuggestedAndSave', { suggestion: nameConflictModal.suggestion })"
+      :cancel-text="$t('common.cancel')"
+      @update:show="nameConflictModal.visible = $event"
+      @confirm="resolveNameConflict(true)"
+      @cancel="resolveNameConflict(false)"
+    />
+
     <!-- Item selector -->
     <InventoryItemSelector
       :visible="showItemSelector"
@@ -88,16 +105,20 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from "vue";
+import { ref, reactive, computed, watch, onMounted, onUnmounted, nextTick } from "vue";
 import { useI18n } from "vue-i18n";
 import { useRouter } from "vue-router";
 import { invoke } from "@tauri-apps/api/core";
 import InventoryItemSelector from "@/components/feature/InventoryItemSelector.vue";
+import ConfirmModal from "@/components/modal/ConfirmModal.vue";
 import BasicTab from "./tabs/BasicTab.vue";
 import LevelTab from "./tabs/LevelTab.vue";
 import PlayerTab from "./tabs/PlayerTab.vue";
 import { notify } from "@/services/notificationService";
 import { editArchiveDataStore } from "@/composables/useArchiveActions";
+import { useArchiveNameCheck } from "@/composables/useArchiveNameCheck";
+import { detectDuplicateNameError } from "@/domain/archive/nameConflict";
+import { tauriArchiveAdapter } from "@/adapters/tauri/archiveAdapter";
 import { formatDifficulty } from "@/utils/archiveCreationUtils";
 import { stripSteamIdSuffix } from "@/utils/steamIdUtils";
 import { getItemIdByName } from "@/utils/itemIdMap";
@@ -176,6 +197,47 @@ const selectedItem = computed(() => {
 const parseError = ref(false);
 const isSaving = ref(false);
 
+// Live name-conflict check while editing (Basic tab). The archive's own .sav
+// is excluded, so keeping the current name never counts as a conflict.
+const { nameConflict, suggestedName, scheduleCheck: scheduleNameCheck, reset: resetNameCheck } = useArchiveNameCheck();
+
+watch(
+  [() => formData.name, () => formData.archiveDifficulty, originalArchive],
+  () => {
+    if (!originalArchive.value?.path) {
+      resetNameCheck();
+      return;
+    }
+    scheduleNameCheck(formData.name, formatDifficulty(formData.archiveDifficulty), originalArchive.value.path);
+  },
+  { immediate: true },
+);
+
+const useSuggestedName = () => {
+  if (suggestedName.value) {
+    formData.name = suggestedName.value;
+  }
+};
+
+// Save-time conflict resolution (race / fast-typing edge): offer the
+// suggested rename instead of failing with a raw backend error.
+const nameConflictModal = reactive({ visible: false, name: "", suggestion: "" });
+let nameConflictResolver = null;
+
+const resolveNameConflict = (useSuggestion) => {
+  nameConflictModal.visible = false;
+  nameConflictResolver?.(useSuggestion);
+  nameConflictResolver = null;
+};
+
+const askToUseSuggestedName = (name, suggestion) =>
+  new Promise((resolve) => {
+    nameConflictResolver = (useSuggestion) => resolve(useSuggestion ? suggestion : null);
+    nameConflictModal.name = name;
+    nameConflictModal.suggestion = suggestion;
+    nameConflictModal.visible = true;
+  });
+
 // Save immediately — no confirmation dialog
 const handleSaveArchive = () => {
   confirmSaveArchive();
@@ -187,6 +249,25 @@ const confirmSaveArchive = async () => {
     isSaving.value = true;
 
     if (!originalArchive.value) return;
+
+    // Pre-flight conflict check: instead of letting the backend reject with a
+    // dead-end error, offer to save under the suggested free name. The
+    // archive's own path is excluded — keeping its name is never a conflict.
+    const nameCheck = await tauriArchiveAdapter.checkArchiveName(
+      formData.name,
+      formatDifficulty(formData.archiveDifficulty),
+      originalArchive.value.path,
+    );
+    if (nameCheck.success && nameCheck.data && !nameCheck.data.available) {
+      const suggestion = nameCheck.data.suggestion;
+      if (!suggestion) {
+        notify.error(t("editArchive.nameTakenConflict", { name: formData.name }));
+        return;
+      }
+      const approvedName = await askToUseSuggestedName(formData.name, suggestion);
+      if (!approvedName) return;
+      formData.name = approvedName;
+    }
 
     const playerInventory = {};
     const playerSanity = {};
@@ -229,7 +310,11 @@ const confirmSaveArchive = async () => {
     const errorMsg = error?.message || String(error);
     console.error("Save failed:", error);
 
-    if (
+    // Duplicate-name rejections get an actionable localized message.
+    const duplicate = detectDuplicateNameError(error);
+    if (duplicate) {
+      notify.error(t("editArchive.nameTakenConflict", { name: duplicate.archiveName || formData.name }));
+    } else if (
       errorMsg.includes("锟杰撅拷锟斤拷锟斤拷") ||
       errorMsg.includes("Access is denied") ||
       errorMsg.includes("os error 5")

@@ -6,10 +6,18 @@
 import type { Archive, CreateArchiveOptions } from "./models";
 import { validateArchiveName, validateInventoryTemplate } from "./validators";
 
+/**
+ * Typed failure reasons a caller can branch on to offer a fix instead of
+ * surfacing a dead-end error. Currently only the backend's overwrite guard
+ * rejection (create/rename onto an existing archive name).
+ */
+export type ArchiveErrorType = "duplicate_name";
+
 export interface ArchiveServiceResult<T> {
   success: boolean;
   data?: T;
   error?: string;
+  errorType?: ArchiveErrorType;
 }
 
 /**

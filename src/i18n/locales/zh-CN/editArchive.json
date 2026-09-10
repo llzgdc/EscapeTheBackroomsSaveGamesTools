@@ -63,6 +63,10 @@
   "saveSuccess": "存档保存成功",
   "saving": "保存中...",
   "saveError": "保存失败：{error}",
+  "nameTakenTitle": "存档名称已被占用",
+  "nameTakenConflict": "存档 “{name}” 已存在",
+  "nameTakenSuggestion": "可以改用名称 “{suggestion}”，点击下方按钮直接应用。",
+  "useSuggestedAndSave": "改用 “{suggestion}” 保存",
   "saveConfirm": {
     "title": "保存存档",
     "message": "确定要保存对此存档的修改吗？",

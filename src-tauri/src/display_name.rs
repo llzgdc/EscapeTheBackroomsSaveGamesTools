@@ -217,6 +217,60 @@ pub fn move_display_entry(mainsave: &mut uesave::Save, old_name: &str, new_name:
     changed
 }
 
+/// Move an archive's display entry on a rename (`old_name` -> `new_name`),
+/// letting an AUTO-GENERATED value follow the rename.
+///
+/// `move_display_entry` keeps the value unconditionally, which is right for a
+/// custom in-game name but wrong when the value merely mirrors the old base
+/// name: the renamed archive would keep displaying its OLD name in the game
+/// and the manager list, reading as "the rename never happened". Here a value
+/// equal to the old base name is updated to the new base name; any other
+/// (truly custom) value is preserved unchanged.
+pub fn move_display_entry_following_base(
+    mainsave: &mut uesave::Save,
+    old_name: &str,
+    new_name: &str,
+) -> bool {
+    if old_name == new_name {
+        return false;
+    }
+
+    let old_base = base_archive_name(old_name).to_string();
+    let new_base = base_archive_name(new_name).to_string();
+
+    let Some(Property::Map(entries)) = mainsave
+        .root
+        .properties
+        .0
+        .get_mut(&property_key(DISPLAY_NAMES_KEY))
+    else {
+        return false;
+    };
+
+    let mut changed = false;
+
+    // Drop any stale entry under the new name.
+    let original_len = entries.len();
+    entries.retain(|entry| !matches!(&entry.key, Property::Str(k) if k == new_name));
+    changed |= entries.len() != original_len;
+
+    // Rename old -> new; auto-generated values follow the rename.
+    for entry in entries.iter_mut() {
+        if matches!(&entry.key, Property::Str(k) if k == old_name) {
+            entry.key = Property::Str(new_name.to_string());
+            if let Property::Str(value) = &mut entry.value {
+                if *value == old_base {
+                    *value = new_base;
+                }
+            }
+            changed = true;
+            break;
+        }
+    }
+
+    changed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -367,5 +421,87 @@ mod tests {
         ));
         // Old entry is gone after the move.
         assert!(!names.contains_key("MULTIPLAYER_OLD_Hard"));
+    }
+
+    #[test]
+    fn move_following_base_updates_auto_generated_value() {
+        let mut save = empty_save();
+        // Value mirrors the old base name — auto-generated, not custom.
+        assert!(insert_display_entry_if_missing(
+            &mut save,
+            "MULTIPLAYER_12315_Normal",
+            "12315"
+        ));
+
+        assert!(move_display_entry_following_base(
+            &mut save,
+            "MULTIPLAYER_12315_Normal",
+            "MULTIPLAYER_123 (2)_Normal"
+        ));
+        let names = get_display_names(&save);
+        assert!(!names.contains_key("MULTIPLAYER_12315_Normal"));
+        // The value followed the rename — the list/game shows the NEW name.
+        assert_eq!(
+            names.get("MULTIPLAYER_123 (2)_Normal").unwrap(),
+            "123 (2)"
+        );
+    }
+
+    #[test]
+    fn move_following_base_preserves_custom_value() {
+        let mut save = empty_save();
+        // Custom in-game name ("llll" displayed as "123" in the game).
+        assert!(insert_display_entry_if_missing(
+            &mut save,
+            "MULTIPLAYER_llll_Normal",
+            "123"
+        ));
+
+        assert!(move_display_entry_following_base(
+            &mut save,
+            "MULTIPLAYER_llll_Normal",
+            "MULTIPLAYER_renamed_Normal"
+        ));
+        // Custom value survives the rename untouched.
+        assert_eq!(
+            get_display_names(&save)
+                .get("MULTIPLAYER_renamed_Normal")
+                .unwrap(),
+            "123"
+        );
+    }
+
+    #[test]
+    fn move_following_base_drops_stale_new_key_entry() {
+        let mut save = empty_save();
+        assert!(insert_display_entry_if_missing(
+            &mut save,
+            "MULTIPLAYER_OLD_Hard",
+            "OLD"
+        ));
+        // A stale leftover under the target key gets dropped by the move.
+        assert!(insert_display_entry_if_missing(
+            &mut save,
+            "MULTIPLAYER_NEW_Hard",
+            "ghost"
+        ));
+
+        assert!(move_display_entry_following_base(
+            &mut save,
+            "MULTIPLAYER_OLD_Hard",
+            "MULTIPLAYER_NEW_Hard"
+        ));
+        let names = get_display_names(&save);
+        assert_eq!(names.get("MULTIPLAYER_NEW_Hard").unwrap(), "NEW");
+    }
+
+    #[test]
+    fn move_following_base_no_op_reports_no_change() {
+        let mut save = empty_save();
+        assert!(!move_display_entry_following_base(
+            &mut save,
+            "MULTIPLAYER_A_Hard",
+            "MULTIPLAYER_B_Hard"
+        ));
     }
 }

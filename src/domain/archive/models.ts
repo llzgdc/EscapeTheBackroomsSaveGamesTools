@@ -80,3 +80,13 @@ export interface CreateArchiveOptions {
   mainEnding: boolean;
   megUnlocked: boolean;
 }
+
+/**
+ * Result of the backend's pre-flight archive-name availability check
+ * (`check_archive_name`). When `available` is false, `suggestion` holds a
+ * first-free alternative like "Hotel (2)" (empty when none could be found).
+ */
+export interface ArchiveNameAvailability {
+  available: boolean;
+  suggestion: string;
+}

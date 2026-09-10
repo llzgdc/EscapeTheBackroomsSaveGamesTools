@@ -57,8 +57,11 @@
             :selected-difficulty="selectedDifficulty"
             :selected-actual-difficulty="selectedActualDifficulty"
             :difficulty-levels="difficultyLevels"
+            :name-conflict="nameConflict"
+            :name-suggestion="suggestedName"
             @select-difficulty="selectDifficulty"
             @select-actual-difficulty="selectActualDifficulty"
+            @use-suggested-name="useSuggestedName"
           />
 
           <!-- Step 3: Edit inventory -->
@@ -118,6 +121,20 @@
       @update:visible="showItemSelector = $event"
     />
 
+    <!-- Name-conflict resolution: offered instead of failing creation -->
+    <ConfirmModal
+      :show="nameConflictModal.visible"
+      type="warning"
+      :title="$t('createArchive.nameTakenTitle')"
+      :message="$t('createArchive.nameTakenConflict', { name: nameConflictModal.name })"
+      :description="$t('createArchive.nameTakenSuggestion', { suggestion: nameConflictModal.suggestion })"
+      :confirm-text="$t('createArchive.useSuggestedAndCreate', { suggestion: nameConflictModal.suggestion })"
+      :cancel-text="$t('common.cancel')"
+      @update:show="nameConflictModal.visible = $event"
+      @confirm="resolveNameConflict(true)"
+      @cancel="resolveNameConflict(false)"
+    />
+
     <!-- Creation success modal -->
     <BaseModal
       :visible="showSuccessModal"
@@ -166,9 +183,12 @@ import { useI18n } from "vue-i18n";
 import { useRouter, useRoute } from "vue-router";
 import InventoryItemSelector from "@/components/feature/InventoryItemSelector.vue";
 import BaseModal from "@/components/ui/BaseModal.vue";
+import ConfirmModal from "@/components/modal/ConfirmModal.vue";
 import { notify } from "@/services/notificationService";
 import { tauriArchiveAdapter } from "@/adapters/tauri/archiveAdapter";
 import { tauriPlayerAdapter } from "@/adapters/tauri/playerAdapter";
+import { useArchiveNameCheck } from "@/composables/useArchiveNameCheck";
+import { detectDuplicateNameError } from "@/domain/archive/nameConflict";
 import Step1SelectLevel from "./Step1SelectLevel.vue";
 import Step2ConfigArchive from "./Step2ConfigArchive.vue";
 import Step3EditInventory from "./Step3EditInventory.vue";
@@ -252,13 +272,58 @@ const difficultyLevels = [
   { value: "nightmare", label: "nightmare", icon: ["fas", "skull"] },
 ];
 
+// The exact difficulty string createArchive() passes to the backend —
+// the filename (and thus any collision) depends on it.
+const createDifficulty = computed(
+  () => selectedDifficulty.value.charAt(0).toUpperCase() + selectedDifficulty.value.slice(1),
+);
+
+// Live name-conflict check so the user fixes the name on Step 2 instead of
+// hitting the backend's "archive already exists" rejection on Step 3.
+const { nameConflict, suggestedName, scheduleCheck: scheduleNameCheck, reset: resetNameCheck } = useArchiveNameCheck();
+
+watch([archiveName, selectedDifficulty, currentStep], () => {
+  if (currentStep.value === 2) {
+    scheduleNameCheck(archiveName.value, createDifficulty.value);
+  } else {
+    resetNameCheck();
+  }
+});
+
+const useSuggestedName = () => {
+  if (suggestedName.value) {
+    archiveName.value = suggestedName.value;
+  }
+};
+
+// Create-time conflict resolution (race / check-skipped edge): offer the
+// suggested rename instead of failing with a raw backend error.
+const nameConflictModal = reactive({ visible: false, name: "", suggestion: "" });
+let nameConflictResolver = null;
+
+const resolveNameConflict = (useSuggestion) => {
+  nameConflictModal.visible = false;
+  nameConflictResolver?.(useSuggestion);
+  nameConflictResolver = null;
+};
+
+const askToUseSuggestedName = (name, suggestion) =>
+  new Promise((resolve) => {
+    nameConflictResolver = resolve;
+    nameConflictModal.name = name;
+    nameConflictModal.suggestion = suggestion;
+    nameConflictModal.visible = true;
+  });
+
 const canProceed = computed(() => {
   if (isCreating.value) return false;
   switch (currentStep.value) {
     case 1:
       return selectedLevel.value !== -1 || !!specialLevelKey.value;
     case 2:
-      return archiveName.value.trim() !== "" && !archiveName.value.includes("_");
+      // A known name conflict blocks proceeding — the inline suggestion
+      // button offers the one-click fix.
+      return archiveName.value.trim() !== "" && !archiveName.value.includes("_") && nameConflict.value === null;
     case 3:
       return true;
     default:
@@ -328,9 +393,7 @@ const onStep1SelectLevel = async (card) => {
   if (!card || !card.levelKey) return;
   let idx = availableLevels.findIndex((l) => l.levelKey === card.levelKey);
   if (idx === -1) {
-    const target = ENDINGS_CONFIG.findIndex((cfg) =>
-      (ENDING_LEVELS[cfg.id] || []).includes(card.levelKey),
-    );
+    const target = ENDINGS_CONFIG.findIndex((cfg) => (ENDING_LEVELS[cfg.id] || []).includes(card.levelKey));
     if (target !== -1 && target !== selectedEnding.value) {
       await selectEnding(target);
       idx = availableLevels.findIndex((l) => l.levelKey === card.levelKey);
@@ -483,6 +546,7 @@ const resetForm = () => {
   activePlayerIndex.value = -1;
   players.splice(0, players.length);
   isCreating.value = false;
+  resetNameCheck();
   loadLevelsForEnding(0);
 };
 
@@ -581,7 +645,24 @@ const createArchive = async () => {
     const megLevels = ["Level0", "TopFloor", "MiddleFloor", "GarageLevel2", "BottomFloor", "TheHub"];
     const isSideLevel = !ENDING_LEVELS[0].includes(selectedLevelData.levelKey);
     const isMEGUnlocked = !megLevels.includes(selectedLevelData.levelKey) || isSideLevel;
-    const savedName = archiveName.value.trim() || "Unnamed Archive";
+    let savedName = archiveName.value.trim() || "Unnamed Archive";
+    // Pre-flight conflict check: instead of letting the backend reject with
+    // a dead-end error, offer to continue with the suggested free name.
+    const nameCheck = await tauriArchiveAdapter.checkArchiveName(savedName, createDifficulty.value);
+    if (nameCheck.success && nameCheck.data && !nameCheck.data.available) {
+      const suggestion = nameCheck.data.suggestion;
+      if (!suggestion) {
+        notify.error(t("createArchive.nameTakenConflict", { name: savedName }));
+        isCreating.value = false;
+        return;
+      }
+      const useSuggestion = await askToUseSuggestedName(savedName, suggestion);
+      if (!useSuggestion) {
+        isCreating.value = false;
+        return;
+      }
+      savedName = suggestion;
+    }
     createdArchiveName.value = savedName;
     // 从已有存档查找完整 PlayerData 键（`<steam id>_+_|<EOS 账号 id>`）：
     // EOS 后缀由 Epic 服务器按账号生成，应用无法推导，只能复用存档里已有的键
@@ -638,8 +719,12 @@ const createArchive = async () => {
     openSuccessModal();
   } catch (error) {
     console.error("Failed to create archive:", error);
-    // Show more specific error message
-    const errorMsg = error.message || error.toString() || "Unknown error";
+    // Duplicate-name rejections are translated into an actionable,
+    // localized message (the pre-flight check above usually prevents them).
+    const duplicate = detectDuplicateNameError(error);
+    const errorMsg = duplicate
+      ? t("createArchive.nameTakenConflict", { name: duplicate.archiveName || createdArchiveName.value })
+      : error.message || error.toString() || "Unknown error";
     notify.error(t("createArchive.createFailed", { error: errorMsg }));
     isCreating.value = false;
   }

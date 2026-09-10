@@ -1,5 +1,6 @@
 import { reactive, computed, nextTick } from "vue";
 import type { ComputedRef, Reactive } from "vue";
+import { useI18n } from "vue-i18n";
 import {
   createDefaultUniformConfig,
   createDefaultSmartRules,
@@ -10,6 +11,7 @@ import { validate } from "./useValidator";
 import { parseName } from "@/utils/nameParser";
 import scheduler from "@/services/resourceScheduler";
 import { tauriArchiveAdapter } from "@/adapters/tauri/archiveAdapter";
+import { archiveService } from "@/domain/archive/service";
 import type {
   ArchiveConfig,
   UniformConfig,
@@ -235,8 +237,51 @@ function createInitialState(): QuickCreateState {
  * Quick create archive state management
  */
 export function useQuickCreate(): QuickCreateReturn {
+  const { t } = useI18n({ useScope: "global" });
   // Reactive state
   const state: Reactive<QuickCreateState> = reactive(createInitialState());
+
+  /**
+   * Rename archives whose names collide with archives already on disk, so
+   * the batch never dies mid-run on the backend's overwrite guard.
+   * `handleDuplicateNames` only sees in-batch names; this covers the disk.
+   * Same hyphen suffix scheme, and gated behind the same smart rule.
+   */
+  const renameDiskCollisions = async (archives: ArchiveConfig[]): Promise<void> => {
+    const metadata = await tauriArchiveAdapter.loadArchiveMetadata();
+    if (!metadata.success || !metadata.data) return; // fail open — backend guard still protects
+
+    const taken = new Set<string>();
+    for (const item of metadata.data) {
+      // Metadata carries full .sav filenames; only the archive-name segment
+      // participates in collisions.
+      const parsed = archiveService.parseArchiveName(item.name);
+      taken.add(parsed ? parsed.archiveName : item.name);
+    }
+    // Archives in the list but not selected this run still occupy their names.
+    const creatingIds = new Set(archives.map((a) => a.id));
+    for (const a of state.archives) {
+      if (!creatingIds.has(a.id)) taken.add(a.name);
+    }
+
+    for (const archive of archives) {
+      if (!taken.has(archive.name)) {
+        // Free — claim it so a later twin in the same batch gets suffixed.
+        taken.add(archive.name);
+        continue;
+      }
+      const baseName = archive.name;
+      let suffix = 1;
+      let finalName = `${baseName}-${suffix}`;
+      while (taken.has(finalName)) {
+        suffix++;
+        finalName = `${baseName}-${suffix}`;
+      }
+      archive.name = finalName;
+      archive.parsedInfo = parseName(finalName);
+      taken.add(finalName);
+    }
+  };
 
   /**
    * Recalculate final configuration for all archives
@@ -613,6 +658,11 @@ export function useQuickCreate(): QuickCreateReturn {
 
       const result = await tauriArchiveAdapter.createArchive(saveData);
       if (!result.success) {
+        // Translate the backend's duplicate-name rejection into a localized,
+        // readable message instead of surfacing the raw English error.
+        if (result.errorType === "duplicate_name") {
+          throw new Error(t("createArchive.nameTakenConflict", { name: archive.name }));
+        }
         throw new Error(result.error || "Failed to create archive");
       }
       return { success: true };
@@ -675,6 +725,15 @@ export function useQuickCreate(): QuickCreateReturn {
     state.creationProgress = 0;
     const abortController = new AbortController();
     batchCreateAbortController = abortController;
+
+    // Resolve name collisions against archives already on disk (same smart
+    // rule as in-batch duplicates) so the run never fails halfway on the
+    // backend's duplicate-name guard.
+    if (state.smartRules.autoRenameDuplicates) {
+      await renameDiskCollisions(archivesToCreate);
+      // Names may have changed — refresh validation state and the preview list.
+      recalculateArchives();
+    }
 
     const results: BatchProgressResult = {
       success: 0,

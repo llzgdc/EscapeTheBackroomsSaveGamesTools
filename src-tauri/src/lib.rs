@@ -55,6 +55,7 @@ pub fn run() {
             save_batch::get_player_unique_ids,
             save_batch::unlock_all_hub_doors,
             save_batch::handle_edit_save,
+            save_batch::check_archive_name,
             system_commands::get_local_appdata,
             save_converter::ensure_dir_exists,
             save_converter::handle_new_save,

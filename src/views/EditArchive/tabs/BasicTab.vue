@@ -5,7 +5,10 @@
       :title="$t('editArchive.basicInfo')"
       :label="$t('editArchive.archiveName')"
       :placeholder="$t('editArchive.archiveNamePlaceholder')"
+      :conflict-text="nameConflict ? $t('editArchive.nameTakenConflict', { name: nameConflict }) : ''"
+      :suggestion="nameSuggestion"
       @update:model-value="$emit('update:name', $event)"
+      @use-suggestion="$emit('use-suggested-name')"
     />
 
     <DifficultySelector
@@ -43,9 +46,19 @@ defineProps({
   name: { type: String, default: "" },
   archiveDifficulty: { type: String, default: "normal" },
   actualDifficulty: { type: String, default: "normal" },
+  // Live name-conflict state from useArchiveNameCheck (parent-owned);
+  // keeping the archive's own name is never flagged as a conflict.
+  nameConflict: { type: String, default: "" },
+  nameSuggestion: { type: String, default: "" },
 });
 
-defineEmits(["update:name", "update:archiveDifficulty", "update:actualDifficulty", "unlock-hub-doors"]);
+defineEmits([
+  "update:name",
+  "update:archiveDifficulty",
+  "update:actualDifficulty",
+  "use-suggested-name",
+  "unlock-hub-doors",
+]);
 </script>
 
 <style scoped>
