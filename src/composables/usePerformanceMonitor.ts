@@ -61,59 +61,59 @@ export function usePerformanceMonitor(): PerformanceMonitorReturn {
 
     initPromise = (async () => {
       const devicePerf = detectDevicePerformance();
-    const longTaskThreshold = devicePerf.isVeryLowEndDevice ? 30 : 50;
-    const fpsThreshold = devicePerf.isVeryLowEndDevice ? 20 : 30;
-    let longTaskCount = 0;
-    let isLowPerfMode = false;
+      const longTaskThreshold = devicePerf.isVeryLowEndDevice ? 30 : 50;
+      const fpsThreshold = devicePerf.isVeryLowEndDevice ? 20 : 30;
+      let longTaskCount = 0;
+      let isLowPerfMode = false;
 
-    globalPerformanceMonitor = createPerformanceMonitor({
-      longTaskThreshold,
-      fpsThreshold,
-      onLowPerformance: () => {
+      globalPerformanceMonitor = createPerformanceMonitor({
+        longTaskThreshold,
+        fpsThreshold,
+        onLowPerformance: () => {
+          performanceMode.value = "low";
+          animationQuality.value = "low";
+          console.info("Performance issue detected, switched to low performance mode");
+          isLowPerfMode = true;
+        },
+        onPerformanceRecovery: () => {
+          if (performanceMode.value === "low") {
+            performanceMode.value = "auto";
+            animationQuality.value = "medium";
+            console.info("Performance recovered, switched to auto performance mode");
+            isLowPerfMode = false;
+          }
+        },
+        onFPSUpdate: (fps: number) => {
+          if (fps < fpsThreshold && fps > 0) {
+            longTaskCount++;
+            if (longTaskCount >= 3 && !isLowPerfMode) {
+              console.warn(`Low FPS detected (${fps} FPS), auto-switched to low performance mode`);
+              performanceMode.value = "low";
+              animationQuality.value = "low";
+              isLowPerfMode = true;
+              longTaskCount = 0;
+            }
+          } else {
+            if (longTaskCount > 0) {
+              longTaskCount = Math.max(0, longTaskCount - 1);
+            }
+          }
+        },
+      });
+
+      globalPerformanceMonitor.start();
+
+      if (devicePerf.isLowEndDevice) {
         performanceMode.value = "low";
         animationQuality.value = "low";
-        console.info("Performance issue detected, switched to low performance mode");
-        isLowPerfMode = true;
-      },
-      onPerformanceRecovery: () => {
-        if (performanceMode.value === "low") {
-          performanceMode.value = "auto";
-          animationQuality.value = "medium";
-          console.info("Performance recovered, switched to auto performance mode");
-          isLowPerfMode = false;
-        }
-      },
-      onFPSUpdate: (fps: number) => {
-        if (fps < fpsThreshold && fps > 0) {
-          longTaskCount++;
-          if (longTaskCount >= 3 && !isLowPerfMode) {
-            console.warn(`Low FPS detected (${fps} FPS), auto-switched to low performance mode`);
-            performanceMode.value = "low";
-            animationQuality.value = "low";
-            isLowPerfMode = true;
-            longTaskCount = 0;
-          }
-        } else {
-          if (longTaskCount > 0) {
-            longTaskCount = Math.max(0, longTaskCount - 1);
-          }
-        }
-      },
-    });
-
-    globalPerformanceMonitor.start();
-
-    if (devicePerf.isLowEndDevice) {
-      performanceMode.value = "low";
-      animationQuality.value = "low";
-    } else if (devicePerf.performanceLevel === "high") {
-      performanceMode.value = "auto";
-      animationQuality.value = "high";
-    }
-    if (devicePerf.prefersReducedMotion) {
-      animationQuality.value = "disabled";
-    }
-    startDisplayWatcher();
+      } else if (devicePerf.performanceLevel === "high") {
+        performanceMode.value = "auto";
+        animationQuality.value = "high";
+      }
+      if (devicePerf.prefersReducedMotion) {
+        animationQuality.value = "disabled";
+      }
+      startDisplayWatcher();
     })().finally(() => {
       initPromise = null;
     });
