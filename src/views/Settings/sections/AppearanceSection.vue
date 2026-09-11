@@ -69,6 +69,7 @@ import ThemeSelector from "@/components/theme/ThemeSelector.vue";
 import storage from "@/services/storageService";
 import { notify } from "@/services/notificationService";
 import { useAppStore } from "@/stores/appStore";
+import { themeManager } from "@/styles/theme-config";
 
 const emit = defineEmits(["language-change"]);
 
@@ -86,15 +87,15 @@ const languageOptions = [
 
 async function handleThemeChange(option) {
   const newTheme = option.value;
-  const previousTheme = currentTheme.value;
+  // v-model already moved currentTheme to the new value by the time this
+  // runs, so take the rollback target from the applied theme instead.
+  const previousTheme = themeManager.currentThemeId.value || currentTheme.value;
 
   try {
-    // ThemeManager handles: data-theme attribute, storage, transitions
-    if (window.themeManager) {
-      await window.themeManager.setTheme(newTheme);
-    } else {
-      document.documentElement.setAttribute("data-theme", newTheme);
-      storage.setItem("theme", newTheme);
+    // ThemeManager handles: lazy CSS loading, data-theme attribute, storage, transitions
+    const applied = await themeManager.setTheme(newTheme);
+    if (!applied) {
+      throw new Error(`Unknown theme: ${newTheme}`);
     }
     // Only update state after successful application
     currentTheme.value = newTheme;
@@ -102,11 +103,7 @@ async function handleThemeChange(option) {
     console.error("Failed to apply theme:", error);
     // Rollback to previous theme
     currentTheme.value = previousTheme;
-    if (window.themeManager) {
-      window.themeManager.setTheme(previousTheme);
-    } else {
-      document.documentElement.setAttribute("data-theme", previousTheme);
-    }
+    await themeManager.setTheme(previousTheme);
     notify.error("Theme change failed: " + (error.message || error));
   }
 }
@@ -137,12 +134,15 @@ function handleClickOutside(event) {
 
 const rootEl = ref(null);
 
-onMounted(() => {
-  // Apply saved theme
-  if (window.themeManager) {
-    window.themeManager.setTheme(currentTheme.value);
-  } else {
-    document.documentElement.setAttribute("data-theme", currentTheme.value);
+onMounted(async () => {
+  // Ensure the persisted theme is applied and the selector highlight
+  // reflects the actually active theme
+  if (!themeManager.isInitialized.value) {
+    await themeManager.init();
+  }
+  const appliedTheme = themeManager.currentThemeId.value;
+  if (appliedTheme) {
+    currentTheme.value = appliedTheme;
   }
 
   document.addEventListener("click", handleClickOutside);

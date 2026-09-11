@@ -4,6 +4,7 @@ import { useRouter, useRoute } from "vue-router";
 import storage from "./services/storageService";
 import { useAppStore } from "./stores/appStore";
 import scheduler from "./services/resourceScheduler";
+import { themeManager } from "./styles/theme-config";
 import PerformanceMonitor from "./components/system/PerformanceMonitor.vue";
 import GlobalSearchPanel from "./components/feature/GlobalSearchPanel.vue";
 import Sidebar from "./components/layout/Sidebar.vue";
@@ -302,14 +303,10 @@ async function initThemeSystem() {
     await storage.initStorage();
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let theme = storage.getItem<string>("theme") || (window as any).__initialTheme || "light";
-
-  if (window.themeManager) {
-    (window.themeManager as unknown as { setTheme: (t: string) => void }).setTheme(theme);
-  } else {
-    document.documentElement.setAttribute("data-theme", theme);
-  }
+  // ThemeManager reads the persisted theme (Tauri config, falling back to
+  // storage), lazy-loads the extra theme CSS when needed, and enables
+  // switch transitions.
+  await themeManager.init();
 }
 </script>
 

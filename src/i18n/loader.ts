@@ -9,6 +9,9 @@ import storage from "@/services/storageService";
 // Singleton instance
 let i18nInstance: I18n | null = null;
 
+/** Locales bundled with the app */
+export const SUPPORTED_LOCALES = ["zh-CN", "zh-TW", "en-US"];
+
 // Language pack cache — messages are dynamic imports, typed loosely
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const messagesCache: Record<string, any> = {};
@@ -135,10 +138,12 @@ export const getI18n = (): I18n | null => i18nInstance;
 
 /**
  * Switch language
+ * @returns Whether the switch was applied (false when the instance is not
+ * ready yet or the locale is unsupported)
  */
-export const switchLanguage = async (newLocale: string): Promise<void> => {
-  if (!i18nInstance || !["zh-CN", "zh-TW", "en-US"].includes(newLocale)) {
-    return;
+export const switchLanguage = async (newLocale: string): Promise<boolean> => {
+  if (!i18nInstance || !SUPPORTED_LOCALES.includes(newLocale)) {
+    return false;
   }
 
   // Ensure language pack is loaded
@@ -149,12 +154,15 @@ export const switchLanguage = async (newLocale: string): Promise<void> => {
     (i18nInstance.global as Composer).setLocaleMessage(newLocale, messages as Record<string, unknown>);
   }
 
+  // In composition mode the composer's locale is a writable computed ref;
+  // assigning `.value` is what actually triggers reactive translation updates.
   (i18nInstance.global as Composer).locale.value = newLocale;
   storage.setItem("locale", newLocale);
   storage.setItem("language", newLocale);
 
   // Dispatch language change event
   window.dispatchEvent(new CustomEvent("language-changed", { detail: { locale: newLocale } }));
+  return true;
 };
 
 /**

@@ -86,7 +86,6 @@ import { ref, computed, onMounted, onUnmounted, nextTick, watch, type Ref } from
 import { useRoute, useRouter } from "vue-router";
 import { topMenuItems, bottomMenuItems } from "@/config/sidebarMenu";
 import { gsap } from "gsap";
-import storageService from "@/services/storageService";
 import { useAppStore } from "@/stores/appStore";
 import { getAppContext } from "@/appContext.js";
 
@@ -159,21 +158,17 @@ const useSidebarRouteHandler = (activeItemId: Ref<number | null>) => {
   return { setActiveItemFromRoute };
 };
 
-const useSidebarTheme = (sidebarRef: Ref<HTMLElement | null>) => {
+const useSidebarTheme = (_sidebarRef: Ref<HTMLElement | null>) => {
   const detectTheme = () => {
-    const win = window as unknown as { themeManager?: { applyTheme?: (t: string) => void } };
-    if (win.themeManager && typeof win.themeManager.applyTheme === "function") {
-      const savedTheme = storageService.getItem<string>("theme") || "light";
-      win.themeManager.applyTheme(savedTheme);
-    } else {
-      document.documentElement.setAttribute("data-theme", "light");
-    }
-
+    // The active theme is applied pre-paint by the inline script in
+    // index.html and kept up to date by ThemeManager; only force a reflow
+    // so the sidebar repaints with it. Never touch data-theme here —
+    // forcing a theme would fight the theme system on every mount.
     requestAnimationFrame(() => {
-      if (sidebarRef.value) {
-        sidebarRef.value.style.visibility = "hidden";
-        void sidebarRef.value.offsetHeight;
-        sidebarRef.value.style.visibility = "visible";
+      if (_sidebarRef.value) {
+        _sidebarRef.value.style.visibility = "hidden";
+        void _sidebarRef.value.offsetHeight;
+        _sidebarRef.value.style.visibility = "visible";
       }
     });
   };

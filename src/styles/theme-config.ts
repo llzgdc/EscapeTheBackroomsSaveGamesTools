@@ -138,19 +138,24 @@ class ThemeManager {
     }
 
     try {
-      // Lazy-load extra theme CSS on first activation
+      // Lazy-load extra theme CSS on first activation before flipping
+      // data-theme, so the new selectors are available immediately.
       if (isExtraTheme(themeId)) {
-        loadTheme(themeId);
+        await loadTheme(themeId);
       }
 
       document.documentElement.setAttribute("data-theme", themeId);
       this._currentThemeId.value = themeId;
 
+      // Persist to the Tauri config file when available, and always keep
+      // the localStorage copy in sync — the inline script in index.html
+      // reads it pre-paint to pick the startup background color.
       try {
         await themeStorage.setActiveThemeId(themeId);
       } catch {
-        storage.setItem("theme", themeId);
+        // Not running under Tauri (e.g. browser-only dev); localStorage still written below
       }
+      storage.setItem("theme", themeId);
 
       if (this._transitionEnabled) {
         // Clear previous timeout so rapid theme switches don't prematurely

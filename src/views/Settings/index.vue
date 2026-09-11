@@ -31,7 +31,7 @@ import { invoke } from "@tauri-apps/api/core";
 import storage from "@/services/storageService";
 import { notify } from "@/services/notificationService";
 import { useAppStore } from "@/stores/appStore";
-import { getAppContext } from "@/appContext";
+import { switchLanguage, getCurrentLanguage, SUPPORTED_LOCALES } from "@/i18n";
 import { APP_VERSION } from "@/config/version";
 import AppearanceSection from "./sections/AppearanceSection.vue";
 import AdvancedSection from "./sections/AdvancedSection.vue";
@@ -46,26 +46,34 @@ const appStore = useAppStore();
 const appVersion = APP_VERSION;
 
 /**
- * Set language with concurrency guard and rollback.
- * Uses a monotonic sequence counter: if a newer call has already started,
- * this call's window title update is skipped to avoid race conditions.
+ * Set language with rollback. switchLanguage() updates the composer's
+ * locale ref (reactive), lazy-loads the message pack, and persists to
+ * storage; the store update drives the UI text transitions.
  */
 async function setLanguage(lang) {
-  const { i18n } = getAppContext();
   const previousLanguage = appStore.language;
-  const previousLocale = i18n ? i18n.locale : null;
+
+  if (!SUPPORTED_LOCALES.includes(lang)) {
+    console.error(`Unsupported language: ${lang}`);
+    notify.error(t("settings.languageSwitchFailed"));
+    return;
+  }
 
   // Monotonic sequence counter for concurrency guard
   if (!languageSwitchSeq) languageSwitchSeq = 0;
   const currentSeq = ++languageSwitchSeq;
 
-  let rollbackNeeded = true;
   try {
-    if (i18n) {
-      i18n.locale = lang;
-    }
-    storage.setItem("language", lang);
+    // The store update must happen in the same tick as the locale change:
+    // with the message pack already loaded (startup preloads all packs)
+    // switchLanguage applies the locale synchronously, so both reactive
+    // changes share one Vue flush and the :key="appStore.language" text
+    // transitions animate once instead of snapping and re-fading.
     appStore.setLanguage(lang);
+    const switched = await switchLanguage(lang);
+    if (!switched) {
+      throw new Error(`Unsupported language: ${lang}`);
+    }
 
     await updateWindowTitle();
 
@@ -74,18 +82,13 @@ async function setLanguage(lang) {
       // Re-apply current language title since a newer call's title may have been overwritten
       await invoke("set_window_title", { title: t("app.name") });
     }
-    rollbackNeeded = false;
   } catch (error) {
     console.error(t("settings.languageSwitchFailed"), error);
-  } finally {
-    if (rollbackNeeded) {
-      if (i18n && previousLocale) {
-        i18n.locale = previousLocale;
-      }
-      storage.setItem("language", previousLanguage);
-      appStore.setLanguage(previousLanguage);
-      notify.error(t("settings.languageSwitchFailed"));
-    }
+    // Roll locale and store back in the same tick for a single transition
+    const rollback = switchLanguage(previousLanguage);
+    appStore.setLanguage(previousLanguage);
+    await rollback;
+    notify.error(t("settings.languageSwitchFailed"));
   }
 }
 
@@ -110,11 +113,11 @@ async function handleLanguageChange(option) {
 
 async function initializeLanguage() {
   try {
-    const { i18n } = getAppContext();
+    // The i18n instance is created from the saved locale at startup; this
+    // is a safety net in case storage changed since (e.g. after import).
     const savedLanguage = storage.getItem("language") || "zh-CN";
-    // Use global i18n instance to set language
-    if (i18n) {
-      i18n.locale = savedLanguage;
+    if (getCurrentLanguage() !== savedLanguage) {
+      await switchLanguage(savedLanguage);
     }
   } catch (error) {
     console.error(t("settings.languageInitFailed"), error);
@@ -364,12 +367,17 @@ onMounted(async () => {
   color: var(--dropdown-selected-text);
 }
 
-/* Text switch animation - clean fade in/out */
-.text-swift-enter-active {
+/* Text switch animation - clean fade in/out.
+   The .settings-container copies outrank elements that declare their own
+   transition shorthand (.section-header's theme color fade would otherwise
+   override the opacity transition and snap the swap instead of fading). */
+.text-swift-enter-active,
+.settings-container .text-swift-enter-active {
   transition: opacity 0.2s ease-out;
 }
 
-.text-swift-leave-active {
+.text-swift-leave-active,
+.settings-container .text-swift-leave-active {
   transition: opacity 0.15s ease-out;
 }
 
