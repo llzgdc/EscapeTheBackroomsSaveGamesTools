@@ -10,6 +10,7 @@ import type {
   ArchiveDetail,
   ArchiveNameAvailability,
   CreateArchiveOptions,
+  TrashedArchive,
 } from "@/domain/archive/models";
 import type { ArchiveServiceResult } from "@/domain/archive/service";
 import { detectDuplicateNameError } from "@/domain/archive/nameConflict";
@@ -124,6 +125,34 @@ function toArchiveDetail(detail: RustSaveFileDetail): ArchiveDetail {
   };
 }
 
+/**
+ * Wire format of `list_trash_archives` (Rust `TrashFileMeta`, plain
+ * `Serialize` → snake_case on the wire).
+ */
+interface RustTrashFileMeta {
+  id: number;
+  name: string;
+  difficulty: string;
+  mode: string;
+  date: string;
+  path: string;
+  original_path: string;
+  file_size: number;
+}
+
+function toTrashedArchive(meta: RustTrashFileMeta): TrashedArchive {
+  return {
+    id: meta.id,
+    name: meta.name,
+    difficulty: meta.difficulty,
+    mode: meta.mode,
+    date: meta.date,
+    path: meta.path,
+    originalPath: meta.original_path,
+    fileSize: meta.file_size,
+  };
+}
+
 export class TauriArchiveAdapter {
   /**
    * Load all archives with full details
@@ -222,12 +251,29 @@ export class TauriArchiveAdapter {
   }
 
   /**
-   * Restore soft-deleted archive
+   * Restore soft-deleted archive. Refuses (typed `duplicate_name` rejection)
+   * when a live archive with the same name exists, unless `overwrite` is set.
    */
-  async restoreArchive(filePath: string): Promise<ArchiveServiceResult<void>> {
+  async restoreArchive(filePath: string, overwrite = false): Promise<ArchiveServiceResult<void>> {
     try {
-      await invoke("restore_file", { filePath });
+      await invoke("restore_file", { filePath, overwrite });
       return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        error: normalizeInvokeError(error),
+        errorType: detectDuplicateNameError(error) ? "duplicate_name" : undefined,
+      };
+    }
+  }
+
+  /**
+   * List all soft-deleted archives in the recycle bin
+   */
+  async loadTrashedArchives(): Promise<ArchiveServiceResult<TrashedArchive[]>> {
+    try {
+      const metas = await invoke<RustTrashFileMeta[]>("list_trash_archives");
+      return { success: true, data: metas.map(toTrashedArchive) };
     } catch (error) {
       return {
         success: false,

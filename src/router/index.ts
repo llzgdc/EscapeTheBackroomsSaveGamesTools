@@ -37,6 +37,12 @@ const routes: RouteRecordRaw[] = [
     meta: { keepAlive: false, priority: 3 },
   },
   {
+    path: "/trash",
+    name: "Trash",
+    component: () => import("../views/Trash.vue"),
+    meta: { keepAlive: true, priority: 3 },
+  },
+  {
     path: "/select-create-mode",
     name: "SelectCreateMode",
     component: () => import("../views/SelectCreateMode.vue"),

@@ -1,6 +1,7 @@
 export { useArchiveData } from "./useArchiveData";
 export { useArchiveNameCheck } from "./useArchiveNameCheck";
 export { useArchiveActions } from "./useArchiveActions";
+export { useTrashArchive } from "./useTrashArchive";
 export { usePerformanceMonitor } from "./usePerformanceMonitor";
 export { useToast } from "./useToast";
 export { useAnimations } from "./useAnimations";

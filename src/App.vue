@@ -54,6 +54,7 @@ const ROUTE_OPERATION_MAP: Record<string, string> = {
   SelectCreateMode: "previewing",
   Settings: "rendering",
   Mods: "rendering",
+  Trash: "previewing",
   About: "rendering",
 };
 

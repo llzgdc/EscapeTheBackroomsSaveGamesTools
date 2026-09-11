@@ -39,6 +39,30 @@ export interface ArchiveDetail {
 }
 
 /**
+ * One soft-deleted archive sitting in the recycle bin.
+ * `path` points at the `.sav.trash` file on disk (diagnostics); every
+ * backend call (restore / permanent delete) is addressed by `originalPath`,
+ * the `.sav` location the archive would return to — the backend recomputes
+ * the trash location from it.
+ */
+export interface TrashedArchive {
+  id: number;
+  name: string;
+  difficulty: string;
+  mode: string;
+  date: string;
+  path: string;
+  originalPath: string;
+  fileSize: number;
+}
+
+/** Outcome of a restore attempt the trash page can branch on. */
+export type RestoreTrashOutcome =
+  | { status: "success" }
+  | { status: "conflict"; archiveName: string }
+  | { status: "error"; message: string };
+
+/**
  * Raw archive config as parsed from user input (before enrichment).
  * Differs from the app-level ArchiveConfig in @/types/archive:
  * here parsedInfo is a simple key/value map and difficulty is a raw string.

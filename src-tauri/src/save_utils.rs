@@ -93,6 +93,28 @@ pub struct SaveFileDetail {
     pub actual_difficulty: Option<String>,
 }
 
+/// Parsed components of a save filename: `(mode_raw, archive_name, difficulty_raw)`.
+pub type SaveFileNameParts<'a> = (&'a str, &'a str, &'a str);
+
+/// Parse a `.sav` filename into its components without building a meta
+/// struct. Returns None when the filename does not follow the game's
+/// `MODE_name_difficulty.sav` convention.
+pub fn parse_save_filename(file_name: &str) -> Option<SaveFileNameParts<'_>> {
+    let caps = get_save_file_regex().captures(file_name)?;
+    Some((
+        caps.get(1)?.as_str(),
+        caps.get(2)?.as_str(),
+        caps.get(3)?.as_str(),
+    ))
+}
+
+/// Canonical difficulty label ("Easy"/"Normal"/"Hard"/"Nightmare") for a raw
+/// filename token. Unknown tokens fall back to "Normal", like map_difficulty.
+#[inline]
+pub fn canonical_difficulty(raw: &str) -> &'static str {
+    map_difficulty(raw).0
+}
+
 /// Difficulty mapping
 #[inline]
 fn map_difficulty(raw: &str) -> (&'static str, &'static str) {

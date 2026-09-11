@@ -1,0 +1,38 @@
+{
+  "title": "回收站",
+  "refresh": "刷新",
+  "emptyTrash": "清空回收站",
+  "loadFailed": "加载回收站失败",
+  "empty": {
+    "title": "回收站是空的",
+    "description": "删除的存档会暂时保留在这里，方便你恢复"
+  },
+  "card": {
+    "restore": "恢复",
+    "delete": "彻底删除"
+  },
+  "restore": {
+    "success": "已恢复存档「{name}」",
+    "failed": "恢复存档「{name}」失败",
+    "conflictTitle": "存在同名存档",
+    "conflictMessage": "存档列表中已存在同名存档「{name}」，恢复将覆盖该存档。",
+    "conflictDescription": "覆盖后现有同名存档的数据将丢失，此操作无法撤销。",
+    "conflictConfirm": "覆盖并恢复"
+  },
+  "delete": {
+    "confirmTitle": "彻底删除存档",
+    "confirmMessage": "将永久删除回收站中的「{name}」。",
+    "confirmDescription": "彻底删除后无法恢复，请确认不再需要该存档。",
+    "confirm": "彻底删除",
+    "success": "已彻底删除「{name}」",
+    "failed": "彻底删除「{name}」失败"
+  },
+  "emptyTrashConfirm": {
+    "title": "清空回收站",
+    "message": "将永久删除回收站中的全部 {count} 个存档。",
+    "description": "彻底删除后无法恢复，请确认不再需要这些存档。",
+    "confirm": "全部删除",
+    "success": "已清空回收站（{count} 个存档）",
+    "partialFailed": "已删除 {success} 个存档，{failed} 个失败"
+  }
+}

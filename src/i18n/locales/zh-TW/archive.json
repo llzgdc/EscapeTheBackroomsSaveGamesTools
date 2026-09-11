@@ -1,6 +1,7 @@
 {
   "listDescription": "檢視和管理所有存檔",
   "createDescription": "建立新的遊戲存檔",
+  "trashDescription": "檢視和管理回收站中的存檔",
   "coreDescription": "編輯遊戲核心存檔資料",
   "testDescription": "臨時存檔測試和管理功能",
   "updated": "更新內容",

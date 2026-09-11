@@ -1,6 +1,7 @@
 {
   "listDescription": "View and manage all archives",
   "createDescription": "Create new game archive",
+  "trashDescription": "View and manage trashed archives",
   "coreDescription": "Edit game core archive data",
   "testDescription": "Temporary archive testing and management features",
   "updated": "Update",

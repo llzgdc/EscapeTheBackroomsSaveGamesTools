@@ -1,0 +1,38 @@
+{
+  "title": "Trash",
+  "refresh": "Refresh",
+  "emptyTrash": "Empty Trash",
+  "loadFailed": "Failed to load the trash",
+  "empty": {
+    "title": "Trash is empty",
+    "description": "Deleted archives are kept here temporarily so you can restore them"
+  },
+  "card": {
+    "restore": "Restore",
+    "delete": "Delete Forever"
+  },
+  "restore": {
+    "success": "Restored archive \"{name}\"",
+    "failed": "Failed to restore archive \"{name}\"",
+    "conflictTitle": "Archive with the same name exists",
+    "conflictMessage": "An archive named \"{name}\" already exists in the archive list. Restoring will overwrite it.",
+    "conflictDescription": "The existing archive with the same name will be lost. This cannot be undone.",
+    "conflictConfirm": "Overwrite & Restore"
+  },
+  "delete": {
+    "confirmTitle": "Delete Archive Forever",
+    "confirmMessage": "\"{name}\" will be permanently deleted from the trash.",
+    "confirmDescription": "A permanently deleted archive cannot be recovered. Make sure you no longer need it.",
+    "confirm": "Delete Forever",
+    "success": "Permanently deleted \"{name}\"",
+    "failed": "Failed to permanently delete \"{name}\""
+  },
+  "emptyTrashConfirm": {
+    "title": "Empty Trash",
+    "message": "All {count} archives in the trash will be permanently deleted.",
+    "description": "Permanently deleted archives cannot be recovered. Make sure you no longer need them.",
+    "confirm": "Delete All",
+    "success": "Trash emptied ({count} archives)",
+    "partialFailed": "Deleted {success} archives, {failed} failed"
+  }
+}

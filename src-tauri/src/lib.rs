@@ -50,6 +50,7 @@ pub fn run() {
             save_deleter::soft_delete_file,
             save_deleter::restore_file,
             save_deleter::permanent_delete_file,
+            save_deleter::list_trash_archives,
             save_deleter::handle_file,
             save_batch::get_player_data,
             save_batch::get_player_unique_ids,

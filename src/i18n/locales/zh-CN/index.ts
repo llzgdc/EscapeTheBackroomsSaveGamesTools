@@ -27,6 +27,7 @@ import k_createMode from "./createMode.json";
 import k_quickCreate from "./quickCreate.json";
 import k_errorBoundary from "./errorBoundary.json";
 import k_mods from "./mods.json";
+import k_trash from "./trash.json";
 
 export default {
   sidebar: k_sidebar,
@@ -58,4 +59,5 @@ export default {
   quickCreate: k_quickCreate,
   errorBoundary: k_errorBoundary,
   mods: k_mods,
+  trash: k_trash,
 };

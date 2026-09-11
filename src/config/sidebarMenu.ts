@@ -33,6 +33,14 @@ export const topMenuItems = ref<MenuConfig[]>([
     descriptionKey: "mods.description",
     route: "Mods",
   },
+  {
+    id: 8,
+    textKey: "sidebar.trash",
+    icon: ["fas", "trash-can"],
+    action: "openTrash",
+    descriptionKey: "archive.trashDescription",
+    route: "Trash",
+  },
 ]);
 
 /**

@@ -6,11 +6,13 @@ use crate::common::{
     get_save_games_dir, get_visible_saves_set, remove_save_from_mainsave, set_save_visibility,
     validate_save_games_path,
 };
-use crate::error::AppResult;
+use crate::error::{AppError, AppResult};
+use serde::Serialize;
 use serde_json::json;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::time::Instant;
 
 /// Helper: run a blocking closure via tokio::task::spawn_blocking,
 /// mapping the join error into an AppResult.
@@ -167,8 +169,13 @@ pub async fn soft_delete_file(file_path: String) -> AppResult<()> {
 /// Restore a soft-deleted file: rename temp/<name>.sav.trash → <name>.sav.
 /// Falls back to the legacy root-level location from older versions.
 /// Adds back to MAINSAVE records.
+///
+/// Refuses to overwrite a live archive with the same name unless the caller
+/// explicitly passes `overwrite: true` — the trash page uses the structured
+/// `DuplicateName` rejection to offer a confirm dialog instead of silently
+/// destroying an archive the user re-created after the deletion.
 #[tauri::command]
-pub async fn restore_file(file_path: String) -> AppResult<()> {
+pub async fn restore_file(file_path: String, overwrite: Option<bool>) -> AppResult<()> {
     run_blocking(move || {
         let path = Path::new(&file_path);
 
@@ -187,12 +194,20 @@ pub async fn restore_file(file_path: String) -> AppResult<()> {
             .file_name()
             .and_then(|n| n.to_str())
             .ok_or("Invalid trash file path")?;
+        let archive_name = extract_archive_name_from_trash(filename);
 
         // Validate the restore TARGET before moving any data there — this is
         // the only containment check for the temp-layout branch (the trash
         // file itself lives in %TEMP% by design), so it must run up front;
         // after the move the check cannot undo the write.
         validate_save_games_path(path)?;
+
+        // Conflict guard: fs::rename replaces existing destinations on
+        // Windows, so without this check a restore would silently clobber a
+        // live archive created under the same name after the deletion.
+        if path.exists() && overwrite != Some(true) {
+            return Err(AppError::DuplicateName(archive_name.to_string()));
+        }
 
         // Restore (may cross volumes between %TEMP% and SaveGames)
         move_file(&trash_path, path).map_err(|e| format!("Failed to restore file: {}", e))?;
@@ -202,7 +217,7 @@ pub async fn restore_file(file_path: String) -> AppResult<()> {
         // that never matches a listing — leaving restored archives hidden.
         // Best-effort (mirrors soft_delete_file): the rename above already put
         // the .sav back, and failing here would report failure after the fact.
-        if let Err(e) = add_save_to_mainsave(extract_archive_name_from_trash(filename)) {
+        if let Err(e) = add_save_to_mainsave(archive_name) {
             tracing::warn!("Failed to re-register '{}' in MAINSAVE: {}", filename, e);
         }
 
@@ -231,6 +246,125 @@ pub async fn permanent_delete_file(file_path: String) -> AppResult<()> {
         Ok(())
     })
     .await
+}
+
+/// Metadata for one trashed archive, as returned by `list_trash_archives`.
+#[derive(Serialize)]
+pub struct TrashFileMeta {
+    pub id: u32,
+    /// Archive name parsed from the original filename (fallback: raw stem).
+    pub name: String,
+    pub difficulty: String,
+    pub mode: String,
+    /// Last-modified date of the trashed file ("YYYY-MM-DD", local time).
+    /// Moving preserves mtime, so this matches the date shown while the
+    /// archive was live; the deletion timestamp itself is not tracked.
+    pub date: String,
+    /// Full path to the `.sav.trash` file (diagnostics).
+    pub path: String,
+    /// Original `.sav` path in SaveGames. `restore_file` and
+    /// `permanent_delete_file` are addressed by THIS path — both recompute
+    /// the trash location from it.
+    pub original_path: String,
+    pub file_size: u64,
+}
+
+/// Derive trash metadata from one `.sav.trash` file. Returns None only for
+/// unreadable entries (no filename / no metadata) so a single broken file
+/// never hides the rest of the bin.
+fn build_trash_meta(trash_path: &Path, save_dir: &Path) -> Option<TrashFileMeta> {
+    let filename = trash_path.file_name()?.to_str()?;
+    // Peel the ".trash" suffix first, then the ".sav" beneath it — so
+    // hand-renamed files that only end in ".trash" still yield a clean stem.
+    // "X.sav.trash" → "X.sav" → "X".
+    let stem = extract_archive_name_from_trash(filename.strip_suffix(".trash").unwrap_or(filename));
+    let original_sav = format!("{}.sav", stem);
+
+    let file_size = fs::metadata(trash_path).ok()?.len();
+    let date = crate::cli_handlers::get_modified_date(trash_path).unwrap_or_default();
+
+    // Non-conforming names (renamed by hand in the temp folder) stay listed
+    // with the raw stem as name and no mode/difficulty — the UI renders them
+    // as generic trashed files.
+    let parsed = crate::save_utils::parse_save_filename(&original_sav);
+    let name = parsed.map(|(_, n, _)| n).unwrap_or(stem).to_string();
+    let difficulty = parsed
+        .map(|(_, _, d)| crate::save_utils::canonical_difficulty(d))
+        .unwrap_or("")
+        .to_string();
+    let mode = if parsed.is_some() { "Multiplayer" } else { "" }.to_string();
+
+    Some(TrashFileMeta {
+        id: 0,
+        name,
+        difficulty,
+        mode,
+        date,
+        path: trash_path.to_string_lossy().into_owned(),
+        original_path: save_dir.join(&original_sav).to_string_lossy().into_owned(),
+        file_size,
+    })
+}
+
+/// List every soft-deleted archive currently sitting in the trash folder.
+/// Legacy root-level `.sav.trash` files are migrated into the temp folder
+/// first, so this is the single source of truth for the recycle-bin page.
+#[tauri::command]
+pub async fn list_trash_archives() -> AppResult<Vec<TrashFileMeta>> {
+    run_blocking(list_trash_archives_sync).await
+}
+
+fn list_trash_archives_sync() -> AppResult<Vec<TrashFileMeta>> {
+    let start_time = Instant::now();
+
+    // Pull old-layout trash files into the temp folder before scanning.
+    migrate_legacy_trash();
+
+    let trash_dir = std::env::temp_dir().join(TRASH_DIR_NAME);
+    let entries = match fs::read_dir(&trash_dir) {
+        Ok(entries) => entries,
+        // No trash folder yet = empty bin, not an error.
+        Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+        Err(e) => return Err(format!("Failed to read trash folder: {}", e).into()),
+    };
+
+    let save_dir = get_save_games_dir()?;
+
+    // (mtime, meta) so the bin lists most-recently-touched first; ids are
+    // assigned after sorting to stay stable within one listing.
+    let mut items: Vec<(std::time::SystemTime, TrashFileMeta)> = entries
+        .flatten()
+        .filter_map(|entry| {
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("trash") {
+                return None;
+            }
+            let modified = entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+            build_trash_meta(&path, &save_dir).map(|meta| (modified, meta))
+        })
+        .collect();
+
+    items.sort_by(|a, b| b.0.cmp(&a.0));
+
+    let results: Vec<TrashFileMeta> = items
+        .into_iter()
+        .enumerate()
+        .map(|(i, (_, mut meta))| {
+            meta.id = i as u32;
+            meta
+        })
+        .collect();
+
+    tracing::info!(
+        "list_trash_archives: {} items, took {:.2}ms",
+        results.len(),
+        start_time.elapsed().as_secs_f64() * 1000.0
+    );
+
+    Ok(results)
 }
 
 /// Open the save games folder in the system file explorer.
@@ -335,4 +469,68 @@ pub async fn handle_file(
         }
     })
     .await
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trash_path_maps_to_sav_trash_suffix() {
+        let sav = Path::new("C:/saves/MULTIPLAYER_Demo_Easy.sav");
+        let trash = new_trash_path(sav);
+        assert_eq!(
+            trash.file_name().and_then(|n| n.to_str()),
+            Some("MULTIPLAYER_Demo_Easy.sav.trash")
+        );
+    }
+
+    #[test]
+    fn trash_path_keeps_dots_inside_archive_names() {
+        // with_extension only replaces the final ".sav", so dotted archive
+        // names survive the trash rename intact.
+        let sav = Path::new("C:/saves/MULTIPLAYER_my.game_Easy.sav");
+        let trash = new_trash_path(sav);
+        assert_eq!(
+            trash.file_name().and_then(|n| n.to_str()),
+            Some("MULTIPLAYER_my.game_Easy.sav.trash")
+        );
+    }
+
+    #[test]
+    fn trash_meta_maps_back_to_original_sav_path() {
+        let dir = std::env::temp_dir().join("etbsavemanager_test_meta");
+        fs::create_dir_all(&dir).unwrap();
+        let trash = dir.join("MULTIPLAYER_Demo_Easy.sav.trash");
+        fs::write(&trash, b"x").unwrap();
+
+        let save_dir = Path::new("C:/saves");
+        let meta = build_trash_meta(&trash, save_dir).expect("meta should build");
+        assert_eq!(meta.name, "Demo");
+        assert_eq!(meta.difficulty, "Easy");
+        assert_eq!(meta.mode, "Multiplayer");
+        assert_eq!(
+            Path::new(&meta.original_path)
+                .file_name()
+                .and_then(|n| n.to_str()),
+            Some("MULTIPLAYER_Demo_Easy.sav")
+        );
+        assert_eq!(meta.file_size, 1);
+
+        fs::remove_file(&trash).ok();
+    }
+
+    #[test]
+    fn trash_meta_falls_back_for_nonconforming_names() {
+        let dir = std::env::temp_dir().join("etbsavemanager_test_meta");
+        fs::create_dir_all(&dir).unwrap();
+        let trash = dir.join("hand_renamed.trash");
+        fs::write(&trash, b"x").unwrap();
+
+        let meta = build_trash_meta(&trash, Path::new("C:/saves")).expect("meta should build");
+        assert_eq!(meta.name, "hand_renamed");
+        assert_eq!(meta.difficulty, "");
+
+        fs::remove_file(&trash).ok();
+    }
 }
