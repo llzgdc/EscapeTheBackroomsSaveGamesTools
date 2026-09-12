@@ -284,7 +284,13 @@ export function useArchiveData(): {
           }
         }
 
-        // Track progress only when mutating the live archives ref
+        // Track progress only when mutating the live archives ref.
+        // NOTE: all three callers pass a local copy (they pre-load details
+        // before the atomic swap, to avoid a placeholder flash), so this branch
+        // is currently inert by design and `loadedDetails` stays 0 — it is not
+        // consumed by any view. Keep the guard: it is what makes a future
+        // caller that loads straight into `archives.value` report progress
+        // correctly instead of regressing silently.
         if (targetArchives === archives.value) {
           incrementalLoadState.value.loadedDetails += batch.length;
           scheduler.updateOperation("loading-archives", {

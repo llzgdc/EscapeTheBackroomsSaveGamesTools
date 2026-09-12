@@ -408,6 +408,21 @@ fn load_save_metadata_sync() -> AppResult<Vec<SaveFileMeta>> {
 /// Returns a page of SaveFileMeta starting from the given `offset`,
 /// so the frontend can progressively fetch archives as the user scrolls.
 /// Returns SaveFileMetaPage with the total count so the frontend knows when the list ends.
+///
+/// PRECONDITION — this is a read-only slice of an already-maintained directory.
+/// Unlike `load_save_metadata` it deliberately does NOT run the Phase-0
+/// maintenance (`convert_singleplayer_archives`, `sync_gensave_filenames`,
+/// `migrate_legacy_trash`): that costs one MAINSAVE parse plus three directory
+/// passes per call, which is exactly the repeated work pagination exists to
+/// avoid. Call `load_save_metadata` (or `load_all_saves`) at least once before
+/// paging, otherwise SINGLEPLAYER_/GENSAVE filenames come back unconverted and
+/// legacy root-level `.sav.trash` files linger in SaveGames.
+///
+/// Skipping them cannot fail or corrupt anything: every entry goes through
+/// `build_save_meta`, which rejects names that do not match the game's
+/// `MODE_name_difficulty.sav` convention, and such entries are dropped — so the
+/// worst case is a page that is missing rows the full listing would have
+/// converted, never an error or a malformed result.
 #[tauri::command]
 pub async fn load_save_metadata_page(
     offset: u32,
@@ -422,6 +437,7 @@ fn load_save_metadata_page_sync(
 ) -> AppResult<save_utils::SaveFileMetaPage> {
     let start_time = Instant::now();
 
+    // No Phase-0 maintenance here on purpose — see the command's doc comment.
     let (paths_result, visible_state) = rayon::join(
         get_file_path::list_save_paths,
         crate::common::get_visible_saves_with_display_names,

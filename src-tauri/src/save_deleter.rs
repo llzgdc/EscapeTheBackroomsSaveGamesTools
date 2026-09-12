@@ -77,6 +77,51 @@ fn legacy_trash_path(original_sav_path: &Path) -> PathBuf {
     original_sav_path.with_extension("sav.trash")
 }
 
+/// Sidecar recording the archive's visibility at deletion time:
+/// `%TEMP%/etbsavemanager/<name>.sav.trash.meta` (plain JSON, e.g.
+/// `{"visible":false}`). Soft-deleting drops the archive from MAINSAVE, which
+/// is the only place its visibility lived — without this the restore could not
+/// tell a hidden archive from a visible one and always brought it back visible.
+/// The ".meta" extension keeps it out of the trash listing, which only picks up
+/// ".trash" entries.
+fn new_trash_meta_path(original_sav_path: &Path) -> PathBuf {
+    let filename = original_sav_path.file_name().unwrap_or_default();
+    std::env::temp_dir()
+        .join(TRASH_DIR_NAME)
+        .join(filename)
+        .with_extension("sav.trash.meta")
+}
+
+/// Record the pre-deletion visibility for a trashed archive.
+///
+/// `None` means the caller could not determine it (MAINSAVE unreadable): any
+/// stale sidecar is removed so the restore falls back to its legacy behaviour
+/// of re-registering the archive as visible.
+fn write_trash_meta(original_sav_path: &Path, was_visible: Option<bool>) -> std::io::Result<()> {
+    let meta_path = new_trash_meta_path(original_sav_path);
+    match was_visible {
+        Some(visible) => {
+            let payload = serde_json::json!({ "visible": visible }).to_string();
+            fs::write(&meta_path, payload)
+        }
+        None => match fs::remove_file(&meta_path) {
+            Err(ref e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            other => other,
+        },
+    }
+}
+
+/// Visibility recorded for a trashed archive. `None` when no (readable) sidecar
+/// exists — legacy trash entries written by older versions, or a sidecar the OS
+/// purged from temp.
+fn read_trash_meta_visible(original_sav_path: &Path) -> Option<bool> {
+    let content = fs::read_to_string(new_trash_meta_path(original_sav_path)).ok()?;
+    serde_json::from_str::<serde_json::Value>(&content)
+        .ok()?
+        .get("visible")?
+        .as_bool()
+}
+
 /// Move a file even when source and destination sit on different volumes
 /// (SaveGames and %TEMP% may be separate drives): fall back to copy+delete.
 fn move_file(from: &Path, to: &Path) -> std::io::Result<()> {
@@ -153,9 +198,26 @@ pub async fn soft_delete_file(file_path: String) -> AppResult<()> {
         // Remove from MAINSAVE records (best-effort — see delete_file. Failing
         // here AFTER the rename would report failure while the archive IS
         // trashed, and would skip registering the undo action on the frontend.)
-        if let Err(e) = remove_save_from_mainsave(extract_archive_name(filename)) {
+        //
+        // The result doubles as the archive's visibility at deletion time:
+        // Ok(true) = the name was registered (= visible), Ok(false) = absent
+        // (= hidden). It is the last moment that information exists, so persist
+        // it for restore_file before the entry is gone.
+        let was_visible = match remove_save_from_mainsave(extract_archive_name(filename)) {
+            Ok(removed) => Some(removed),
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to clean '{}' from MAINSAVE after trash: {}",
+                    filename,
+                    e
+                );
+                None
+            }
+        };
+
+        if let Err(e) = write_trash_meta(path, was_visible) {
             tracing::warn!(
-                "Failed to clean '{}' from MAINSAVE after trash: {}",
+                "Failed to record visibility for trashed '{}': {} (restore will re-register it as visible)",
                 filename,
                 e
             );
@@ -168,7 +230,10 @@ pub async fn soft_delete_file(file_path: String) -> AppResult<()> {
 
 /// Restore a soft-deleted file: rename temp/<name>.sav.trash → <name>.sav.
 /// Falls back to the legacy root-level location from older versions.
-/// Adds back to MAINSAVE records.
+/// Re-registers the archive in MAINSAVE **with the visibility it had before it
+/// was trashed** (see `write_trash_meta`) — a hidden archive used to come back
+/// visible after delete→undo / recycle-bin restore. Trash entries without a
+/// sidecar (written by older versions) keep the old always-visible behaviour.
 ///
 /// Refuses to overwrite a live archive with the same name unless the caller
 /// explicitly passes `overwrite: true` — the trash page uses the structured
@@ -196,6 +261,11 @@ pub async fn restore_file(file_path: String, overwrite: Option<bool>) -> AppResu
             .ok_or("Invalid trash file path")?;
         let archive_name = extract_archive_name_from_trash(filename);
 
+        // Visibility the archive had when it was trashed. No sidecar (legacy
+        // entry, purged temp, or an unwritable sidecar) ⇒ treat as visible,
+        // i.e. exactly the behaviour before the sidecar existed.
+        let was_visible = read_trash_meta_visible(path).unwrap_or(true);
+
         // Validate the restore TARGET before moving any data there — this is
         // the only containment check for the temp-layout branch (the trash
         // file itself lives in %TEMP% by design), so it must run up front;
@@ -217,9 +287,24 @@ pub async fn restore_file(file_path: String, overwrite: Option<bool>) -> AppResu
         // that never matches a listing — leaving restored archives hidden.
         // Best-effort (mirrors soft_delete_file): the rename above already put
         // the .sav back, and failing here would report failure after the fact.
-        if let Err(e) = add_save_to_mainsave(archive_name) {
-            tracing::warn!("Failed to re-register '{}' in MAINSAVE: {}", filename, e);
+        //
+        // Only archives that were visible get re-registered: putting a
+        // previously hidden archive into SingleplayerSaves would silently
+        // un-hide it in the game's lobby list.
+        if was_visible {
+            if let Err(e) = add_save_to_mainsave(archive_name) {
+                tracing::warn!("Failed to re-register '{}' in MAINSAVE: {}", filename, e);
+            }
+        } else {
+            tracing::info!(
+                "Restored '{}' as hidden — it was hidden before it was trashed",
+                filename
+            );
         }
+
+        // The sidecar has served its purpose; drop it so a later trash entry
+        // for the same name cannot inherit this visibility.
+        let _ = fs::remove_file(new_trash_meta_path(path));
 
         Ok(())
     })
@@ -243,6 +328,11 @@ pub async fn permanent_delete_file(file_path: String) -> AppResult<()> {
                     .map_err(|e| format!("Failed to delete trash file: {}", e))?;
             }
         }
+
+        // Drop the visibility sidecar with it, otherwise the trash folder
+        // accumulates orphaned `*.meta` files for archives that are gone for good.
+        let _ = fs::remove_file(new_trash_meta_path(path));
+
         Ok(())
     })
     .await
@@ -532,5 +622,58 @@ mod tests {
         assert_eq!(meta.difficulty, "");
 
         fs::remove_file(&trash).ok();
+    }
+
+    #[test]
+    fn trash_sidecar_path_is_distinct_from_the_trash_file() {
+        let sav = Path::new("C:/saves/MULTIPLAYER_Demo_Easy.sav");
+        let trash = new_trash_path(sav);
+        let meta = new_trash_meta_path(sav);
+
+        assert_eq!(
+            meta.file_name().and_then(|n| n.to_str()),
+            Some("MULTIPLAYER_Demo_Easy.sav.trash.meta")
+        );
+        // "meta", not "trash" — the bin listing filters on that extension.
+        assert_eq!(meta.extension().and_then(|e| e.to_str()), Some("meta"));
+        assert_ne!(trash, meta);
+    }
+
+    #[test]
+    fn trash_sidecar_round_trips_visibility() {
+        let sav = std::env::temp_dir()
+            .join("etbsavemanager_test_sidecar")
+            .join("MULTIPLAYER_Sidecar_Easy.sav");
+        let meta = new_trash_meta_path(&sav);
+        fs::create_dir_all(meta.parent().unwrap()).unwrap();
+
+        write_trash_meta(&sav, Some(false)).unwrap();
+        assert_eq!(read_trash_meta_visible(&sav), Some(false));
+
+        write_trash_meta(&sav, Some(true)).unwrap();
+        assert_eq!(read_trash_meta_visible(&sav), Some(true));
+
+        // Unknown visibility must clear the sidecar so restore falls back to
+        // its legacy always-visible behaviour instead of guessing.
+        write_trash_meta(&sav, None).unwrap();
+        assert_eq!(read_trash_meta_visible(&sav), None);
+
+        fs::remove_file(&meta).ok();
+    }
+
+    #[test]
+    fn trash_sidecar_missing_or_corrupt_reads_as_unknown() {
+        let sav = std::env::temp_dir()
+            .join("etbsavemanager_test_sidecar_bad")
+            .join("MULTIPLAYER_Corrupt_Easy.sav");
+        let meta = new_trash_meta_path(&sav);
+        fs::create_dir_all(meta.parent().unwrap()).unwrap();
+
+        assert_eq!(read_trash_meta_visible(&sav), None);
+
+        fs::write(&meta, b"{ not json").unwrap();
+        assert_eq!(read_trash_meta_visible(&sav), None);
+
+        fs::remove_file(&meta).ok();
     }
 }
