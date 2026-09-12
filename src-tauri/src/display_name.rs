@@ -441,10 +441,7 @@ mod tests {
         let names = get_display_names(&save);
         assert!(!names.contains_key("MULTIPLAYER_12315_Normal"));
         // The value followed the rename — the list/game shows the NEW name.
-        assert_eq!(
-            names.get("MULTIPLAYER_123 (2)_Normal").unwrap(),
-            "123 (2)"
-        );
+        assert_eq!(names.get("MULTIPLAYER_123 (2)_Normal").unwrap(), "123 (2)");
     }
 
     #[test]
