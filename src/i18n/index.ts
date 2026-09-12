@@ -9,7 +9,13 @@ import releaseNotesZhCN from "./locales/release-notes.zh-CN.json";
 import releaseNotesEnUS from "./locales/release-notes.en-US.json";
 import releaseNotesZhTW from "./locales/release-notes.zh-TW.json";
 
-export { createI18nInstance, switchLanguage, getCurrentLanguage, getReleaseNotesData, SUPPORTED_LOCALES } from "./loader";
+export {
+  createI18nInstance,
+  switchLanguage,
+  getCurrentLanguage,
+  getReleaseNotesData,
+  SUPPORTED_LOCALES,
+} from "./loader";
 
 interface ReleaseNotesData {
   version: string;

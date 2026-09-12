@@ -9,12 +9,7 @@
           <span v-if="!loading" class="count-badge">{{ trashedArchives.length }}</span>
         </div>
         <div class="header-actions">
-          <button
-            class="header-btn"
-            type="button"
-            :disabled="loading || isEmptying"
-            @click="handleRefresh"
-          >
+          <button class="header-btn" type="button" :disabled="loading || isEmptying" @click="handleRefresh">
             <font-awesome-icon icon="fa-solid fa-refresh" aria-hidden="true" />
             {{ $t("trash.refresh") }}
           </button>
@@ -35,9 +30,7 @@
         <div class="emptying-track">
           <div class="emptying-fill" :style="{ width: emptyingPercent + '%' }"></div>
         </div>
-        <span class="emptying-text">
-          {{ emptyProgress.current }} / {{ emptyProgress.total }}
-        </span>
+        <span class="emptying-text"> {{ emptyProgress.current }} / {{ emptyProgress.total }} </span>
       </div>
 
       <!-- Loading state -->

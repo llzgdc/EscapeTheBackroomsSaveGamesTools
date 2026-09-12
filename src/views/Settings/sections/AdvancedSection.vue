@@ -46,8 +46,7 @@ const { t } = useI18n({ useScope: "global" });
 const appStore = useAppStore();
 
 const gpuAccelerationDisabled = ref(
-  storage.getItem("gpuAccelerationDisabled", false) === true ||
-    storage.getItem("gpuAccelerationDisabled") === "true",
+  storage.getItem("gpuAccelerationDisabled", false) === true || storage.getItem("gpuAccelerationDisabled") === "true",
 );
 
 async function handleGpuAccelerationToggle() {

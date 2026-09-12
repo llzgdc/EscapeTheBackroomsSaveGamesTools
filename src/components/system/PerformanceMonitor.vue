@@ -315,7 +315,7 @@ export default {
       if (this.cpuData.length > maxPoints) this.cpuData.shift();
 
       // 使用 requestIdleCallback 延迟更新图表，避免阻塞主线程
-      if (typeof requestIdleCallback !== 'undefined') {
+      if (typeof requestIdleCallback !== "undefined") {
         requestIdleCallback(() => this.updateCharts(), { timeout: 200 });
       } else {
         // 降级方案：使用 setTimeout

@@ -35,12 +35,8 @@ const getLevelName = (levelKey) => {
 // Cross-locale name lookup so typing "Ocean Map" finds the level even in zh-CN
 const enNames = ref({});
 const zhNames = ref({});
-import("@/i18n/locales/en-US/LevelName_Display.json")
-  .then((m) => (enNames.value = m.default))
-  .catch(() => {});
-import("@/i18n/locales/zh-CN/LevelName_Display.json")
-  .then((m) => (zhNames.value = m.default))
-  .catch(() => {});
+import("@/i18n/locales/en-US/LevelName_Display.json").then((m) => (enNames.value = m.default)).catch(() => {});
+import("@/i18n/locales/zh-CN/LevelName_Display.json").then((m) => (zhNames.value = m.default)).catch(() => {});
 const altName = (k) => (locale.value === "en-US" ? zhNames.value[k] : enNames.value[k]) || "";
 
 const availableLevels = ref([]);
@@ -113,9 +109,7 @@ const levelGroups = computed(() => {
 
   // Special bucket: flat-list levels belonging to NO route (e.g. LevelCheat)
   const known = new Set(Object.values(ENDING_LEVELS).flat());
-  const leftovers = availableLevels.value.filter(
-    (l) => !known.has(l.levelKey),
-  );
+  const leftovers = availableLevels.value.filter((l) => !known.has(l.levelKey));
   if (leftovers.length > 0) {
     groups.push({
       id: "special",

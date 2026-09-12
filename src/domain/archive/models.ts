@@ -58,9 +58,7 @@ export interface TrashedArchive {
 
 /** Outcome of a restore attempt the trash page can branch on. */
 export type RestoreTrashOutcome =
-  | { status: "success" }
-  | { status: "conflict"; archiveName: string }
-  | { status: "error"; message: string };
+  { status: "success" } | { status: "conflict"; archiveName: string } | { status: "error"; message: string };
 
 /**
  * Raw archive config as parsed from user input (before enrichment).

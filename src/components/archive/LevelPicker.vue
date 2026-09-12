@@ -26,12 +26,7 @@
     <!-- Level search — outside section-card so it doesn't scroll -->
     <div class="level-search">
       <font-awesome-icon :icon="['fas', 'search']" class="level-search-icon" />
-      <input
-        v-model="searchQuery"
-        type="text"
-        class="level-search-input"
-        :placeholder="searchPlaceholder"
-      />
+      <input v-model="searchQuery" type="text" class="level-search-input" :placeholder="searchPlaceholder" />
       <button v-if="searchActive" class="level-search-clear" @click="searchQuery = ''">
         <font-awesome-icon :icon="['fas', 'times']" />
       </button>
@@ -515,12 +510,18 @@ onUnmounted(() => {
   z-index: 2;
   padding: 4px 10px;
   border-radius: 999px;
-  background: linear-gradient(135deg, var(--accent-color) 0%, color-mix(in srgb, var(--accent-color) 80%, #fff 20%) 100%);
+  background: linear-gradient(
+    135deg,
+    var(--accent-color) 0%,
+    color-mix(in srgb, var(--accent-color) 80%, #fff 20%) 100%
+  );
   color: #fff;
   font-size: 10px;
   font-weight: 700;
   letter-spacing: 0.04em;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3), 0 1px 2px rgba(0, 0, 0, 0.2);
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.3),
+    0 1px 2px rgba(0, 0, 0, 0.2);
   pointer-events: none;
 }
 

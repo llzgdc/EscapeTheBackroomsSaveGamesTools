@@ -210,7 +210,6 @@ defineEmits([
   border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-
 @media (max-width: 768px) {
   .players-layout {
     grid-template-columns: 1fr;

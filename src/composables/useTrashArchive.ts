@@ -131,9 +131,7 @@ export function useTrashArchive() {
     if (results.failed === 0) {
       toast.showSuccess(t("trash.emptyTrashConfirm.success", { count: results.success }));
     } else {
-      toast.showError(
-        t("trash.emptyTrashConfirm.partialFailed", { success: results.success, failed: results.failed }),
-      );
+      toast.showError(t("trash.emptyTrashConfirm.partialFailed", { success: results.success, failed: results.failed }));
     }
 
     return results;

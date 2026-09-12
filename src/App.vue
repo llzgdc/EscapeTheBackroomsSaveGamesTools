@@ -40,9 +40,7 @@ const shouldShowPerformanceMonitor = computed(
 // truth. NOTE: keep-alive matches the component's registered name, so every
 // cached view must declare an explicit `defineOptions({ name })` (or a
 // filename-derived name that matches its route name).
-const cachedComponents = router.options.routes
-  .filter((r) => r.meta?.keepAlive)
-  .map((r) => String(r.name));
+const cachedComponents = router.options.routes.filter((r) => r.meta?.keepAlive).map((r) => String(r.name));
 
 // ─── Resource Scheduler ──────────────────────────────────
 // Map route names to scheduler operation types for auto-detection

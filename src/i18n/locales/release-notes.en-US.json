@@ -15,8 +15,6 @@
       "Fixed memory leaks and event listener issues",
       "Fixed minor bugs in search, popups, theme switching"
     ],
-    "performance": [
-      "Resource scheduler and image preloader optimizations"
-    ]
+    "performance": ["Resource scheduler and image preloader optimizations"]
   }
 }
