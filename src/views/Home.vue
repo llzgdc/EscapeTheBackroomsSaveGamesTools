@@ -616,6 +616,12 @@ const centerEditedArchive = (): void => {
 //   4. 18 RAF frames (~300ms) let the sidebar animation finish.
 //   5. Boost priority, refresh data, flip showCards=true.
 let activateTimer: ReturnType<typeof setTimeout> | null = null;
+// Inside <KeepAlive> the FIRST onActivated fires immediately after onMounted,
+// so the initial load is already driven by onMounted below. Without this flag
+// the refresh path re-ran a full silent reload ~300ms into the first paint,
+// hiding the just-rendered cards (spinner → cards → spinner → cards) and
+// costing an extra IPC round-trip per entry.
+let isFirstActivation = true;
 declare global {
   interface Window {
     __toggleSidebar?: () => void;
@@ -629,6 +635,13 @@ onActivated(() => {
 
   if (scrollContainerRef.value) {
     (scrollContainerRef.value as HTMLElement).scrollTop = 0;
+  }
+
+  // First activation: onMounted already kicked off the initial load, so skip
+  // the deferred reload entirely.
+  if (isFirstActivation) {
+    isFirstActivation = false;
+    return;
   }
 
   // Clear any leftover timer from a previous activation that didn't finish
@@ -647,10 +660,14 @@ onActivated(() => {
       }
       invoke("set_process_priority", { priority: "high" }).catch(() => {});
       refreshArchivesSilent().then(() => {
+        // Revert the process priority unconditionally: bailing out on the
+        // isPageActive guard first would leave the app stuck at HIGH process
+        // priority for the rest of the session whenever the user navigated
+        // away while the silent refresh was still in flight.
+        invoke("set_process_priority", { priority: "normal" }).catch(() => {});
         if (!isPageActive.value) return;
         showCards.value = true;
         loading.value = false;
-        invoke("set_process_priority", { priority: "normal" }).catch(() => {});
         nextTick(() => {
           rowVirtualizer.value.measure();
           centerEditedArchive();

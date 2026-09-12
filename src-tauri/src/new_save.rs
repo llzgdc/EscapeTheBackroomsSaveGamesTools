@@ -557,6 +557,13 @@ fn update_player_data(save: &mut Save, players: &[PlayerData]) -> AppResult<()> 
 
     tracing::info!("Processing player data...");
 
+    // Resolve every player's real PlayerData key up front: one folder scan for
+    // the whole batch instead of one full scan (and full `.sav` parse) per
+    // player — see resolve_player_full_keys.
+    let resolved_keys = crate::save_batch::resolve_player_full_keys(
+        &players.iter().map(|p| p.steam_id.clone()).collect::<Vec<_>>(),
+    );
+
     let map_entries: Vec<_> = players
         .iter()
         .map(|player| {
@@ -593,7 +600,9 @@ fn update_player_data(save: &mut Save, players: &[PlayerData]) -> AppResult<()> 
             // game ignores (empty backpack, sanity reset to 100), so resolve the real
             // EOS-suffixed key from the cache or an existing save; keep the raw id
             // only when no reusable PUID exists anywhere.
-            let resolved_key = crate::save_batch::resolve_player_full_key(&player.steam_id)
+            let resolved_key = resolved_keys
+                .get(&player.steam_id)
+                .cloned()
                 .unwrap_or_else(|| player.steam_id.clone());
 
             uesave::MapEntry {

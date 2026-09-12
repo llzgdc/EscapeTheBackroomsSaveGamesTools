@@ -64,6 +64,19 @@ export function useVirtualScroll(scrollContainerRef: Ref<HTMLElement | null>, di
     }
   };
 
+  /** Observe one container element, RAF-debouncing column recalculation. */
+  const observeContainer = (el: HTMLElement): void => {
+    let rafId: number | null = null;
+    resizeObserver = new ResizeObserver(() => {
+      if (rafId !== null) return;
+      rafId = requestAnimationFrame(() => {
+        columnsPerRow.value = getColumnCount();
+        rafId = null;
+      });
+    });
+    resizeObserver.observe(el);
+  };
+
   // Watch the scrollContainerRef: as soon as it's set (after mount),
   // initialize the column count and set up the ResizeObserver.
   // This runs synchronously before any async data loading, so
@@ -75,19 +88,17 @@ export function useVirtualScroll(scrollContainerRef: Ref<HTMLElement | null>, di
   watch(
     scrollContainerRef,
     (el) => {
-      if (!el || resizeObserver || !("ResizeObserver" in window)) return;
+      if (!("ResizeObserver" in window)) return;
+
+      // A cleared ref means the container left the DOM. Drop the old observer:
+      // leaving it attached keeps it watching a detached node, and the stale
+      // handle would make a later remount bail out on "observer already
+      // exists" — never observing the new element, so columns stop updating.
+      destroyObserver();
+      if (!el) return;
 
       columnsPerRow.value = getColumnCount();
-
-      let rafId: number | null = null;
-      resizeObserver = new ResizeObserver(() => {
-        if (rafId !== null) return;
-        rafId = requestAnimationFrame(() => {
-          columnsPerRow.value = getColumnCount();
-          rafId = null;
-        });
-      });
-      resizeObserver.observe(el);
+      observeContainer(el);
     },
     { immediate: true },
   );
@@ -100,16 +111,9 @@ export function useVirtualScroll(scrollContainerRef: Ref<HTMLElement | null>, di
   const recalculateColumns = (): void => {
     columnsPerRow.value = getColumnCount();
     destroyObserver();
-    if (scrollContainerRef.value && "ResizeObserver" in window) {
-      let rafId: number | null = null;
-      resizeObserver = new ResizeObserver(() => {
-        if (rafId !== null) return;
-        rafId = requestAnimationFrame(() => {
-          columnsPerRow.value = getColumnCount();
-          rafId = null;
-        });
-      });
-      resizeObserver.observe(scrollContainerRef.value);
+    const el = scrollContainerRef.value;
+    if (el && "ResizeObserver" in window) {
+      observeContainer(el);
     }
   };
 

@@ -296,12 +296,21 @@ export function useQuickCreate(): QuickCreateReturn {
       archive.hasIndividualSettings = hasIndividualSettings(archive);
     }
 
-    // Re-validate
+    // Re-validate. Grouping messages by archive id keeps this linear; the
+    // previous per-archive `.filter()` over the whole error list was O(n × m)
+    // and could freeze the UI around the 1000-name batch threshold.
     const validationResult: ValidationResult = validate(state.archives);
+    const messagesByArchiveId = new Map<string, string[]>();
+    for (const error of validationResult.errors) {
+      const messages = messagesByArchiveId.get(error.archiveId);
+      if (messages) {
+        messages.push(error.message);
+      } else {
+        messagesByArchiveId.set(error.archiveId, [error.message]);
+      }
+    }
     for (const archive of state.archives) {
-      archive.validationErrors = validationResult.errors
-        .filter((e) => e.archiveId === archive.id)
-        .map((e) => e.message);
+      archive.validationErrors = messagesByArchiveId.get(archive.id) ?? [];
     }
   };
 
@@ -516,8 +525,11 @@ export function useQuickCreate(): QuickCreateReturn {
    * Batch update selected archives
    */
   const batchUpdateSelected = (updates: Record<string, unknown>): void => {
+    // Index the archive list once — a per-id find() inside the loop made this
+    // O(selected × archives).
+    const archivesById = new Map(state.archives.map((a) => [a.id, a]));
     for (const archiveId of state.selectedArchiveIds) {
-      const archive = state.archives.find((a) => a.id === archiveId);
+      const archive = archivesById.get(archiveId);
       if (archive) {
         // Only update fields that are not "keep original"
         for (const [key, value] of Object.entries(updates)) {

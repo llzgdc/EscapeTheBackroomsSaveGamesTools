@@ -21,19 +21,22 @@ fn get_save_file_regex() -> &'static Regex {
     })
 }
 
-/// Cache SaveGames root directory
+/// Cache SaveGames root directory.
+///
+/// Deliberately NOT filtered on `exists()`: the resolved path is what callers
+/// compare `path.parent()` against, so caching "does not exist yet" as `None`
+/// would make every archive report `hidden = true` for the rest of the process
+/// — including after the game creates the directory (the app is normally
+/// launched before the game, and the cached `None` is never recomputed).
 static SAVE_GAMES_BASE_DIR: OnceLock<Option<PathBuf>> = OnceLock::new();
 
 #[inline]
 fn get_save_games_base_dir() -> Option<&'static PathBuf> {
     SAVE_GAMES_BASE_DIR
         .get_or_init(|| {
-            std::env::var("LOCALAPPDATA")
-                .ok()
-                .map(|local_appdata| {
-                    PathBuf::from(local_appdata).join("EscapeTheBackrooms\\Saved\\SaveGames")
-                })
-                .filter(|dir| dir.exists())
+            std::env::var("LOCALAPPDATA").ok().map(|local_appdata| {
+                PathBuf::from(local_appdata).join("EscapeTheBackrooms\\Saved\\SaveGames")
+            })
         })
         .as_ref()
 }

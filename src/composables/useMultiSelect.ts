@@ -1,4 +1,4 @@
-import { ref, computed, type Ref } from "vue";
+import { ref, computed, onDeactivated, onUnmounted, type Ref } from "vue";
 import type { ArchiveData } from "@/types";
 
 interface DeleteResults {
@@ -70,6 +70,19 @@ export function useMultiSelect(
     // Restore the scroll position that was lost when position:fixed was applied
     window.scrollTo(scrollLeftBeforeMultiSelect, scrollTopBeforeMultiSelect);
   };
+
+  // The scroll lock lives on <body>, i.e. OUTSIDE this component's DOM. Leaving
+  // multi-select mode only via confirm/cancel meant that navigating away while
+  // the mode was active (the host page is keep-alive, so it deactivates rather
+  // than unmounts) left position:fixed / overflow:hidden applied globally and
+  // every other page unscrollable. Always release the lock on deactivate/unmount.
+  const releaseScrollLock = (): void => {
+    if (isMultiSelectMode.value) {
+      exitMultiSelectMode();
+    }
+  };
+  onDeactivated(releaseScrollLock);
+  onUnmounted(releaseScrollLock);
 
   const toggleArchiveSelection = (archiveId: number): void => {
     const newSet = new Set(selectedArchives.value);

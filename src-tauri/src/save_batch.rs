@@ -115,7 +115,7 @@ fn is_real_eos_key(key: &str) -> bool {
     }
 }
 
-/// Resolve the full PlayerData key (`<steam id>_+_|<EOS PUID>`) for a player id.
+/// Resolve the full PlayerData key (`<steam id>_+_|<EOS PUID>`) for a batch of player ids.
 ///
 /// A bare steam id is not a usable PlayerData key: the game only binds player data
 /// to `<steam id>_+_|<EOS PUID>` keys, so a bare-key entry is silently ignored
@@ -123,32 +123,52 @@ fn is_real_eos_key(key: &str) -> bool {
 /// Epic's servers per account and cannot be synthesized, so it must be read back
 /// from a save (or the local cache) that already contains it.
 ///
-/// - When `player_id` already carries a real (non-placeholder) EOS suffix it is
-///   returned unchanged.
+/// - An id already carrying a real (non-placeholder) EOS suffix maps to itself.
 /// - Otherwise the local cache is checked, then existing saves are scanned; any
 ///   discovery is persisted for next time.
-/// - Returns `None` when no real EOS key can be found anywhere (e.g. a player
-///   that has never been saved — the game has no PUID for it yet).
-pub(crate) fn resolve_player_full_key(player_id: &str) -> Option<String> {
+/// - Ids with no real EOS key anywhere (e.g. a player that has never been saved —
+///   the game has no PUID for it yet) are simply absent from the result, and the
+///   caller falls back to the raw id.
+///
+/// Resolves the whole batch in ONE pass. The create flow used to call the
+/// single-player variant per player, and each call walked the save folder and
+/// fully parsed every `.sav` while holding PLAYER_ID_MAP_LOCK — O(players ×
+/// saves) parses (and lock re-acquisitions) for a single archive creation.
+/// Collecting every real EOS key of the folder first makes an N-player batch
+/// cost exactly one scan.
+///
+/// Keys are matched in the same walk order as before: the first save
+/// containing a real EOS key for a pending player wins.
+pub(crate) fn resolve_player_full_keys(player_ids: &[String]) -> HashMap<String, String> {
     // Serialize the cache read-modify-write span (see PLAYER_ID_MAP_LOCK).
     let _guard = player_id_map_lock();
 
-    // Already a real key — nothing to resolve.
-    if is_real_eos_key(player_id) {
-        return Some(player_id.to_string());
-    }
-
-    let mut map = load_player_id_map();
-    // Cache hit must still pass the real-key check: older app versions persisted
-    // all-zeros placeholders that the game ignores.
-    if let Some(full) = map.get(player_id) {
-        if is_real_eos_key(full) {
-            return Some(full.clone());
+    let mut resolved: HashMap<String, String> = HashMap::new();
+    // Players that still need a lookup: real keys need none, and a cached key
+    // only counts when it carries a REAL suffix (older app versions persisted
+    // all-zeros placeholders that the game ignores).
+    let mut pending: Vec<&str> = Vec::new();
+    {
+        let cached = load_player_id_map();
+        for player_id in player_ids {
+            if is_real_eos_key(player_id) {
+                resolved.insert(player_id.clone(), player_id.clone());
+                continue;
+            }
+            match cached.get(player_id) {
+                Some(full) if is_real_eos_key(full) => {
+                    resolved.insert(player_id.clone(), full.clone());
+                }
+                _ => pending.push(player_id.as_str()),
+            }
         }
     }
 
-    // Scan existing saves for a real EOS-suffixed entry belonging to this id.
-    let mut discovered: Option<String> = None;
+    if pending.is_empty() {
+        return resolved;
+    }
+
+    let mut discovered: HashMap<String, String> = HashMap::new();
     if let Ok(save_games_dir) = get_save_games_dir() {
         if save_games_dir.exists() {
             let iter = walkdir::WalkDir::new(&save_games_dir)
@@ -162,9 +182,16 @@ pub(crate) fn resolve_player_full_key(player_id: &str) -> Option<String> {
                 if let Ok(save) = cli_handlers::parse_sav_file(entry.path()) {
                     let (ids, _, _) = player_data::extract_player_data(&save);
                     for id in ids {
-                        if is_real_eos_key(&id) && pure_player_key(&id) == player_id {
-                            discovered = Some(id);
-                            break 'scan;
+                        if !is_real_eos_key(&id) {
+                            continue;
+                        }
+                        let pure = pure_player_key(&id);
+                        if pending.contains(&pure.as_str()) && !discovered.contains_key(&pure) {
+                            discovered.insert(pure, id);
+                            // Every pending player resolved — stop parsing.
+                            if discovered.len() == pending.len() {
+                                break 'scan;
+                            }
                         }
                     }
                 }
@@ -172,13 +199,17 @@ pub(crate) fn resolve_player_full_key(player_id: &str) -> Option<String> {
         }
     }
 
-    if let Some(full) = discovered {
-        map.insert(player_id.to_string(), full.clone());
-        save_player_id_map(&map);
-        Some(full)
-    } else {
-        None
+    if !discovered.is_empty() {
+        // One read-modify-write for the whole batch instead of one per player.
+        let mut cached = load_player_id_map();
+        for (pure, full) in discovered {
+            cached.insert(pure.clone(), full.clone());
+            resolved.insert(pure, full);
+        }
+        save_player_id_map(&cached);
     }
+
+    resolved
 }
 
 /// Look up the full PlayerData key (`<steam id>_+_|<EOS PUID>`) for each requested

@@ -322,7 +322,7 @@ pub fn edit_save_file(json_data: &JsonValue, output_dir: &str) -> AppResult<Stri
 
     // Write to temp file first to avoid data loss on crash
     let temp_path = output_path.with_extension("sav.tmp");
-    {
+    let write_result: AppResult<()> = (|| {
         let file =
             File::create(&temp_path).map_err(|e| format!("Failed to create temp file: {}", e))?;
         let mut writer = BufWriter::new(file);
@@ -331,6 +331,14 @@ pub fn edit_save_file(json_data: &JsonValue, output_dir: &str) -> AppResult<Stri
         writer
             .flush()
             .map_err(|e| format!("Failed to flush buffer: {}", e))?;
+        Ok(())
+    })();
+    if let Err(e) = write_result {
+        // Clean up the half-written temp file: returning here (disk full,
+        // serialization failure) used to strand a `*.sav.tmp` file in the
+        // game's SaveGames folder for every failed save.
+        let _ = fs::remove_file(&temp_path);
+        return Err(e);
     }
 
     // Update MAINSAVE BEFORE any destructive filesystem step. Registration is
@@ -1309,7 +1317,7 @@ pub fn unlock_all_hub_doors(file_path: &str) -> AppResult<String> {
     // transient IO error) would destroy the save with no recovery path.
     let target_path = Path::new(file_path);
     let temp_path = target_path.with_extension("sav.tmp");
-    {
+    let write_result: AppResult<()> = (|| {
         let file =
             File::create(&temp_path).map_err(|e| format!("Failed to create temp file: {}", e))?;
         let mut writer = BufWriter::new(file);
@@ -1318,6 +1326,12 @@ pub fn unlock_all_hub_doors(file_path: &str) -> AppResult<String> {
         writer
             .flush()
             .map_err(|e| format!("Failed to flush buffer: {}", e))?;
+        Ok(())
+    })();
+    if let Err(e) = write_result {
+        // See edit_save_file: never leave a partial `*.sav.tmp` behind.
+        let _ = fs::remove_file(&temp_path);
+        return Err(e);
     }
     fs::rename(&temp_path, target_path)
         .map_err(|e| format!("Failed to replace save file: {}", e))?;

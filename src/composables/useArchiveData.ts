@@ -244,6 +244,17 @@ export function useArchiveData(): {
     const pendingPaths = targetArchives.filter((a) => a.currentLevel === "Level0").map((a) => a.path);
     if (pendingPaths.length === 0) return;
 
+    // Index paths → item ONCE instead of scanning the whole array per detail
+    // (findIndex inside the batch loop made this O(items × details)). First
+    // occurrence wins, matching the previous findIndex semantics — including
+    // the empty-path case.
+    const byPath = new Map<string, ArchiveData>();
+    for (const archive of targetArchives) {
+      if (!byPath.has(archive.path)) {
+        byPath.set(archive.path, archive);
+      }
+    }
+
     for (let i = 0; i < pendingPaths.length; i += BATCH_SIZE) {
       if (detailLoadCancelled) return;
       const batch = pendingPaths.slice(i, i + BATCH_SIZE);
@@ -258,9 +269,8 @@ export function useArchiveData(): {
         }
 
         for (const detail of details) {
-          const idx = targetArchives.findIndex((a) => a.path === detail.path);
-          if (idx !== -1) {
-            const target = targetArchives[idx];
+          const target = byPath.get(detail.path);
+          if (target) {
             target.currentLevel = detail.current_level;
             if (detail.actual_difficulty) {
               target.actualDifficulty =

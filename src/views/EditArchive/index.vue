@@ -3,10 +3,10 @@
     <div class="error-state">
       <font-awesome-icon :icon="['fas', 'exclamation-triangle']" class="error-icon" />
       <h2 class="error-title">{{ $t("editArchive.parseFailed") }}</h2>
-      <p class="error-desc">{{ $t("editArchive.parseFailed") }}</p>
+      <p class="error-desc">{{ $t("editArchive.parseFailedDataInvalid") }}</p>
       <button class="btn-primary" @click="closeEdit">
         <font-awesome-icon :icon="['fas', 'home']" />
-        Return to Home
+        {{ $t("errorBoundary.goHome") }}
       </button>
     </div>
   </div>

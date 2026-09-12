@@ -109,16 +109,25 @@ pub async fn convert_json_to_sav(json_content: String, output_path: String) -> A
         // from the JSON editor) up front, so a mid-write failure would destroy
         // the original with no recovery path.
         let temp_path = out_path.with_extension("sav.tmp");
-        let file = fs::File::create(&temp_path)
-            .map_err(|e| format!("Failed to create temp file: {}", e))?;
-        let mut writer = BufWriter::with_capacity(16384, file);
+        let write_result: AppResult<()> = (|| {
+            let file = fs::File::create(&temp_path)
+                .map_err(|e| format!("Failed to create temp file: {}", e))?;
+            let mut writer = BufWriter::with_capacity(16384, file);
 
-        save.write(&mut writer)
-            .map_err(|e| format!("Failed to write sav file: {:?}", e))?;
+            save.write(&mut writer)
+                .map_err(|e| format!("Failed to write sav file: {:?}", e))?;
 
-        writer
-            .flush()
-            .map_err(|e| format!("Failed to flush buffer: {}", e))?;
+            writer
+                .flush()
+                .map_err(|e| format!("Failed to flush buffer: {}", e))?;
+            Ok(())
+        })();
+        if let Err(e) = write_result {
+            // Drop the partial temp file instead of stranding a `*.sav.tmp`
+            // next to the archive for every failed conversion.
+            let _ = fs::remove_file(&temp_path);
+            return Err(e);
+        }
 
         fs::rename(&temp_path, out_path)
             .map_err(|e| format!("Failed to replace sav file: {}", e))?;

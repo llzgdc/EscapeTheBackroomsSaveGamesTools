@@ -331,8 +331,6 @@ const canProceed = computed(() => {
   }
 });
 
-watch(selectedEnding, () => {});
-
 const selectDifficulty = (difficulty) => {
   selectedDifficulty.value = difficulty;
   if (FEATURES.MERGE_DIFFICULTY) {
