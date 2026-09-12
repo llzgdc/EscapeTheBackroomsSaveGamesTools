@@ -1,6 +1,6 @@
 [package]
 name = "etbsavemanager"
-version = "3.4.1"
+version = "3.4.2"
 description = "A tool for managing Save games in ETB"
 authors = ["Eververdants"]
 edition = "2021"

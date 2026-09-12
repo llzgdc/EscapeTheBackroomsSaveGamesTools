@@ -1,20 +1,27 @@
 {
-  "version": "3.4.1",
-  "date": "2026-09-06",
-  "title": "Bug Fixes & Performance",
+  "version": "3.4.2",
+  "date": "2026-09-12",
+  "title": "Recycle Bin & Name Conflict Handling",
   "type": "patch",
   "categories": {
-    "newFeatures": [],
-    "improvements": [
-      "Batch operations now cancellable",
-      "Save parsing more resilient to malformed properties",
-      "Extra themes lazy-loaded for faster startup"
+    "newFeatures": [
+      "New Recycle Bin page: deleted archives can be restored or permanently deleted",
+      "Archive name conflict detection with one-click rename suggestions"
     ],
+    "improvements": ["Failed renames and edits now roll back automatically instead of losing the archive"],
     "bugFixes": [
-      "Fixed path traversal vulnerability",
-      "Fixed memory leaks and event listener issues",
-      "Fixed minor bugs in search, popups, theme switching"
+      "Fixed quick-create failing due to field naming mismatch",
+      "Creating or renaming an archive no longer silently overwrites an existing one",
+      "Save writes and conversions are now atomic, so failures no longer corrupt the original file",
+      "Fixed archive visibility not preserved when restoring from the recycle bin",
+      "Fixed missing component imports breaking quick-create step 2",
+      "Fixed pages staying unscrollable after leaving multi-select mode",
+      "Fixed all archives being marked hidden when the save directory does not exist yet",
+      "Fixed multiple memory leaks and uncleaned event listeners"
     ],
-    "performance": ["Resource scheduler and image preloader optimizations"]
+    "performance": [
+      "Batch archive creation is much faster with single-pass key resolution",
+      "Optimized hot paths in archive loading and validation to cut redundant work and IPC round-trips"
+    ]
   }
 }
